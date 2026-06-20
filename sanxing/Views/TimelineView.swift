@@ -196,7 +196,7 @@ struct TimelineView: View {
         let total = blocks.reduce(0) { $0 + $1.duration }
         let isToday = day.isSameDay(as: .now)
         return VStack(spacing: 6) {
-            Rectangle().fill(.white).frame(height: 1)        // 跨天白线分割
+            Rectangle().fill(Color(.separator)).frame(height: 1)   // 跨天分割线（自适应深浅色）
             HStack {
                 Text(isToday ? "今天" : day.dayTitle)
                     .font(.subheadline).bold()

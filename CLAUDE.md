@@ -86,7 +86,7 @@ sanxing/
 
 - **行的 key 是 hour-start `Date`**（某天某整点 = `day.startOfDay + h 小时`），不再是单纯 `Int` 小时。渲染一个**天的窗口** `days: [Date]`（初始 today±14）；首/末天 `onAppear` 往前/后各拼 7 天，前插后用 `ScrollViewReader.scrollTo(旧首天 header, .top)` **重锚避免跳动**。
 - 用 `ScrollView + LazyVStack`（**不是 List**）——List 内拖拽选择会与滚动冲突。
-- 结构：`ForEach(days){ dayHeader(day); ForEach(visibleHourStarts(of:day)){ hourRow(hs).id(hs) } }`。`dayHeader` = **白线分割**（`Rectangle().fill(.white).frame(height:1)`）+ 日期（今天高亮）+ 当天小结。
+- 结构：`ForEach(days){ dayHeader(day); ForEach(visibleHourStarts(of:day)){ hourRow(hs).id(hs) } }`。`dayHeader` = **分割线**（`Rectangle().fill(Color(.separator))`，自适应深浅色）+ 日期（今天高亮）+ 当天小结。
 - **按天独立**：`coveringBlock`/`visibleHourStarts` 都加同天守卫，跨午夜的块不会覆盖到下一天；`coalesceAdjacent` 只合并**同一自然日内**相邻同类块（`isSameDay` 守卫），跨天不并。
 - `focusedDay` 由滚动推导（`updateFocusedDay`：取贴近视口顶部那行的天），驱动顶部标题、全选范围、新建默认天。
 - 看「今天」时 `ScrollViewReader` 自动滚到当前钟点并高亮；当前时刻所在行左侧钟点加粗+下划线（`rowContainsNow`，含被多小时块覆盖的情形）。
