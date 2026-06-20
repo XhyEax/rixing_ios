@@ -28,7 +28,7 @@ final class TimeBlock {
 
 // 时间块分类：颜色 + 图标 + 名称（先内置一组，后续可做成可配置）
 enum BlockCategory: String, CaseIterable, Identifiable {
-    case work, study, rest, exercise, life, fun, phone, reading, code, other
+    case work, study, rest, exercise, life, fun, phone, reading, code, writing, other
     var id: String { rawValue }
 
     var name: String {
@@ -42,6 +42,7 @@ enum BlockCategory: String, CaseIterable, Identifiable {
         case .phone: return "玩手机"
         case .reading: return "阅读"
         case .code: return "编程"
+        case .writing: return "写作"
         case .other: return "其他"
         }
     }
@@ -56,6 +57,7 @@ enum BlockCategory: String, CaseIterable, Identifiable {
         case .phone: return .indigo
         case .reading: return .cyan
         case .code: return .mint
+        case .writing: return .yellow
         case .other: return .brown   // 原灰色对比度低、看不清，改棕色
         }
     }
@@ -70,6 +72,7 @@ enum BlockCategory: String, CaseIterable, Identifiable {
         case .phone: return "iphone.gen3"
         case .reading: return "books.vertical.fill"
         case .code: return "chevron.left.forwardslash.chevron.right"
+        case .writing: return "square.and.pencil"
         case .other: return "circle.fill"
         }
     }
