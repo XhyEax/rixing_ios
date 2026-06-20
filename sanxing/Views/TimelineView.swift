@@ -22,6 +22,7 @@ struct TimelineView: View {
     @State private var selectionMode = false
     @State private var selected: Set<PersistentIdentifier> = []   // 选中的已有块
     @State private var selectedHourStarts: Set<Date> = []         // 选中的空闲整点（按 hour-start）
+    @State private var selectedIdle: Set<IdleRange> = []          // 选中的小空闲段（块之间任意长度）
     @State private var showFillDialog = false
     @State private var showDatePicker = false
     @State private var datePickerDay = Date.now
@@ -33,6 +34,7 @@ struct TimelineView: View {
 
     private struct NewBlock: Identifiable { let start: Date; let end: Date; var id: Date { start } }
     private struct OverlapPair: Identifiable { let id = UUID(); let earlier: TimeBlock; let later: TimeBlock }
+    private struct IdleRange: Hashable { let start: Date; let end: Date }
 
     // MARK: - 取数（按天 / 按 hour-start）
 
@@ -89,11 +91,16 @@ struct TimelineView: View {
         return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
     }
 
-    private var totalSelected: Int { selected.count + selectedHourStarts.count }
+    private var totalSelected: Int { selected.count + selectedHourStarts.count + selectedIdle.count }
+    private var selectedIdleCount: Int { selectedHourStarts.count + selectedIdle.count }   // 可填充的空闲数
     private var focusedEmpty: [Date] { emptyHourStarts(of: focusedDay) }
-    // 全选只针对「焦点天」的空闲整点
+    private var focusedIdle: [IdleRange] { idleRanges(of: focusedDay) }
+    // 全选「焦点天」的空闲整点 + 小空闲段
     private var allSelected: Bool {
-        !focusedEmpty.isEmpty && focusedEmpty.allSatisfy { selectedHourStarts.contains($0) }
+        let any = !focusedEmpty.isEmpty || !focusedIdle.isEmpty
+        return any
+            && focusedEmpty.allSatisfy { selectedHourStarts.contains($0) }
+            && focusedIdle.allSatisfy { selectedIdle.contains($0) }
     }
     // 恰好选中一个块时返回它（底部「操作」菜单用）
     private var singleBlock: TimeBlock? {
@@ -276,10 +283,10 @@ struct TimelineView: View {
             }
             ToolbarItemGroup(placement: .bottomBar) {
                 Button { showFillDialog = true } label: {
-                    Label("填充\(selectedHourStarts.isEmpty ? "" : " \(selectedHourStarts.count)")",
+                    Label("填充\(selectedIdleCount == 0 ? "" : " \(selectedIdleCount)")",
                           systemImage: "rectangle.fill.badge.plus")
                 }
-                .disabled(selectedHourStarts.isEmpty)
+                .disabled(selectedIdleCount == 0)
                 Spacer()
                 if let b = singleBlock {
                     Menu {
@@ -409,12 +416,18 @@ struct TimelineView: View {
         }
     }
 
-    // 块之间的空闲段：左侧已是起始时间，这里显示时长，点按按该段起止建块
+    // 块之间的空闲段：普通态点按建块；多选态可勾选（一并填充/合并）
     private func idleGap(_ s: Date, _ e: Date) -> some View {
-        Button {
-            if !selectionMode { newBlock = NewBlock(start: s, end: e) }
+        let r = IdleRange(start: s, end: e)
+        let isSel = selectedIdle.contains(r)
+        return Button {
+            if selectionMode { toggleIdle(r) } else { newBlock = NewBlock(start: s, end: e) }
         } label: {
             HStack(spacing: 6) {
+                if selectionMode {
+                    Image(systemName: isSel ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSel ? Color.accentColor : .secondary)
+                }
                 Text("空闲").font(.caption).foregroundStyle(.tertiary)
                 Text(formatDuration(e.timeIntervalSince(s))).font(.caption2).foregroundStyle(.quaternary)
                 Spacer()
@@ -422,10 +435,17 @@ struct TimelineView: View {
             }
             .padding(.vertical, 6).padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
-            .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            .background((isSel ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.04)),
+                        in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .disabled(selectionMode)
+    }
+
+    // 某天所有可见的小空闲段（供全选）
+    private func idleRanges(of day: Date) -> [IdleRange] {
+        visibleHourStarts(of: day).flatMap { hs in
+            hourItems(hs).compactMap { if case .idle(let s, let e) = $0 { return IdleRange(start: s, end: e) }; return nil }
+        }
     }
 
     private func emptySlot(_ hs: Date) -> some View {
@@ -574,12 +594,21 @@ struct TimelineView: View {
     private func toggleHour(_ hs: Date) {
         if selectedHourStarts.contains(hs) { selectedHourStarts.remove(hs) } else { selectedHourStarts.insert(hs) }
     }
+    private func toggleIdle(_ r: IdleRange) {
+        if selectedIdle.contains(r) { selectedIdle.remove(r) } else { selectedIdle.insert(r) }
+    }
     private func toggleSelectAll() {
-        if allSelected { focusedEmpty.forEach { selectedHourStarts.remove($0) } }
-        else { focusedEmpty.forEach { selectedHourStarts.insert($0) } }
+        if allSelected {
+            focusedEmpty.forEach { selectedHourStarts.remove($0) }
+            focusedIdle.forEach { selectedIdle.remove($0) }
+        } else {
+            focusedEmpty.forEach { selectedHourStarts.insert($0) }
+            focusedIdle.forEach { selectedIdle.insert($0) }
+        }
     }
     private func exitSelection() {
-        selectionMode = false; selected.removeAll(); selectedHourStarts.removeAll(); dragAnchor = nil
+        selectionMode = false
+        selected.removeAll(); selectedHourStarts.removeAll(); selectedIdle.removeAll(); dragAnchor = nil
     }
     private func deleteSelected() {
         for b in allBlocks where selected.contains(b.id) { ctx.delete(b) }
@@ -588,13 +617,11 @@ struct TimelineView: View {
     // 把选中的空闲整点并入唯一选中的块：块拉长覆盖整段（保留块原有更早起/更晚止）
     private func mergeSelected() {
         guard let b = allBlocks.first(where: { selected.contains($0.id) }) else { return }
-        let cal = Calendar.current
-        let bhs = cal.date(bySettingHour: cal.component(.hour, from: b.start), minute: 0, second: 0,
-                           of: b.start.startOfDay) ?? b.start
-        let starts = selectedHourStarts.union([bhs])
-        guard let lo = starts.min(), let hi = starts.max() else { return }
-        b.start = min(b.start, lo)
-        b.end = max(b.end, hi.addingTimeInterval(3600))
+        var lo = b.start, hi = b.end
+        for hs in selectedHourStarts { lo = min(lo, hs); hi = max(hi, hs.addingTimeInterval(3600)) }
+        for r in selectedIdle { lo = min(lo, r.start); hi = max(hi, r.end) }
+        b.start = lo
+        b.end = hi
         normalize()
         exitSelection()
     }
@@ -602,6 +629,9 @@ struct TimelineView: View {
     private func fillSelectedHours(with key: String) {
         for hs in selectedHourStarts {
             ctx.insert(TimeBlock(start: hs, end: hs.addingTimeInterval(3600), title: "", category: key))
+        }
+        for r in selectedIdle {
+            ctx.insert(TimeBlock(start: r.start, end: r.end, title: "", category: key))   // 小空闲段按精确起止建块
         }
         normalize()
         exitSelection()
