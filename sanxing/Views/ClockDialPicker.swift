@@ -13,34 +13,19 @@ struct ClockDialPicker: View {
 
     private enum Knob { case start, end }
     @State private var active: Knob?
-    @State private var editing = false   // 须先解锁才能拖拽，避免滚动时误触
+    // 触摸命中带（圆环）比可见环略宽，便于抓取
+    private var touchBand: CGFloat { ringWidth + 16 }
 
     var body: some View {
-        VStack(spacing: 8) {
-            dial
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { editing.toggle() }
-            } label: {
-                Label(editing ? "调整中，点按锁定" : "点按解锁调整",
-                      systemImage: editing ? "lock.open.fill" : "lock.fill")
-                    .font(.caption)
-            }
-            .buttonStyle(.bordered)
-            .tint(editing ? color : .secondary)
-        }
-    }
-
-    private var dial: some View {
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
             let c = CGPoint(x: geo.size.width / 2, y: side / 2)
             let r = (side - ringWidth) / 2
             let labelR = r - ringWidth / 2 - 16
             ZStack {
-                // 轨道（解锁时描一圈分类色高亮，提示可拖）
+                // 轨道
                 Circle()
-                    .stroke(editing ? color.opacity(0.35) : Color.secondary.opacity(0.15),
-                            lineWidth: ringWidth)
+                    .stroke(Color.secondary.opacity(0.15), lineWidth: ringWidth)
                     .frame(width: r * 2, height: r * 2)
                     .position(c)
 
@@ -57,7 +42,7 @@ struct ClockDialPicker: View {
                     let major = h % 6 == 0
                     Text("\(h)")
                         .font(major ? .headline : .caption2).monospacedDigit()
-                        .fontWeight(major ? .bold : .regular)
+                        .fontWeight(.regular)
                         .foregroundStyle(major ? Color.primary : .secondary)
                         .position(point(Double(h), center: c, radius: labelR))
                 }
@@ -78,9 +63,9 @@ struct ClockDialPicker: View {
                 knob(startIcon).position(point(hours(of: start), center: c, radius: r))
                 knob(endIcon).position(point(hours(of: start) + durationHours, center: c, radius: r))
             }
-            .contentShape(Rectangle())
-            // 锁定时不拦截手势，交给外层 ScrollView 滚动；解锁后才响应拖拽
-            .highPriorityGesture(drag(center: c, radius: r), including: editing ? .gesture : .subviews)
+            // 只把「圆环带」作为命中区：点中心/外侧不拦截 → 交给外层 ScrollView 滚动，避免误触
+            .contentShape(RingShape(radius: r, width: touchBand))
+            .highPriorityGesture(drag(center: c, radius: r))
         }
         .frame(height: 240)
     }
@@ -92,8 +77,6 @@ struct ClockDialPicker: View {
                 .shadow(color: .black.opacity(0.2), radius: 1.5)
             Image(systemName: icon).font(.caption).foregroundStyle(color)
         }
-        .overlay { if editing { Circle().strokeBorder(color, lineWidth: 2) } }
-        .scaleEffect(editing ? 1.12 : 1)
     }
 
     // MARK: - 几何
@@ -166,5 +149,19 @@ struct ClockDialPicker: View {
         while cand <= start { cand = cand.addingTimeInterval(86400) }
         if cand.timeIntervalSince(start) > 86400 { cand = cand.addingTimeInterval(-86400) }
         end = cand
+    }
+}
+
+// 圆环命中形状：外圆 + 反向内圆 → 填充出环带，只让环带区域参与命中
+private struct RingShape: Shape {
+    var radius: CGFloat   // 环中线半径
+    var width: CGFloat    // 环带宽度
+
+    func path(in rect: CGRect) -> Path {
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        var p = Path()
+        p.addArc(center: c, radius: radius + width / 2, startAngle: .zero, endAngle: .degrees(360), clockwise: false)
+        p.addArc(center: c, radius: max(0, radius - width / 2), startAngle: .degrees(360), endAngle: .zero, clockwise: true)
+        return p
     }
 }
