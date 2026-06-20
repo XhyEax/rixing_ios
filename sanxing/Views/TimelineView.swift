@@ -127,7 +127,8 @@ struct TimelineView: View {
                     rowFrames = frames
                     updateFocusedDay(frames)
                 }
-                .highPriorityGesture(selectDragGesture)
+                // 仅在多选态拦截长按拖拽（范围选择）；普通态放行，让块/空闲段的长按菜单生效
+                .highPriorityGesture(selectDragGesture, including: selectionMode ? .all : .subviews)
                 .onChange(of: scrollTarget) { _, t in
                     guard let t else { return }
                     DispatchQueue.main.async {
@@ -354,13 +355,37 @@ struct TimelineView: View {
             }
         case .block(let b):
             timeLabeledRow(time: b.start, isNow: isNowIn(b.start, b.end)) {
-                Button { tapBlock(b) } label: { blockCard(b) }
-                    .buttonStyle(.plain)
-                    .contextMenu { blockMenu(b) }   // 长按弹菜单（结束/合并空闲/编辑/删除）
+                let btn = Button { tapBlock(b) } label: { blockCard(b) }.buttonStyle(.plain)
+                if selectionMode { btn } else { btn.contextMenu { blockMenu(b) } }   // 长按菜单（仅普通态）
             }
         case .idle(let s, let e):
-            timeLabeledRow(time: s, isNow: isNowIn(s, e)) { idleGap(s, e) }
+            timeLabeledRow(time: s, isNow: isNowIn(s, e)) {
+                if selectionMode { idleGap(s, e) }
+                else { idleGap(s, e).contextMenu { idleMenu(s, e) } }               // 空闲段也可长按合并
+            }
         }
+    }
+
+    // 空闲段长按菜单：并入相邻块（小空闲也归到某个块），或建新块
+    @ViewBuilder
+    private func idleMenu(_ s: Date, _ e: Date) -> some View {
+        if let p = blockEndingAt(s) {
+            Button { p.end = max(p.end, e); afterEdit() } label: {
+                Label("并入上一个块", systemImage: "arrow.up.to.line")
+            }
+        }
+        if let n = blockStartingAt(e) {
+            Button { n.start = min(n.start, s); afterEdit() } label: {
+                Label("并入下一个块", systemImage: "arrow.down.to.line")
+            }
+        }
+        Button { newBlock = NewBlock(start: s, end: e) } label: { Label("新建块", systemImage: "plus") }
+    }
+    private func blockEndingAt(_ t: Date) -> TimeBlock? {
+        allBlocks.first { $0.end == t && $0.start.isSameDay(as: t) }
+    }
+    private func blockStartingAt(_ t: Date) -> TimeBlock? {
+        allBlocks.first { $0.start == t && $0.start.isSameDay(as: t) }
     }
 
     private func timeLabeledRow<C: View>(time: Date, isNow: Bool,
@@ -597,8 +622,12 @@ struct TimelineView: View {
 
     @ViewBuilder
     private func blockMenu(_ b: TimeBlock) -> some View {
-        if isInProgress(b) {
-            Button { endNow(b) } label: { Label("立即结束（到现在）", systemImage: "stop.circle") }
+        let now = Date.now
+        if now < b.end {
+            Button { setStartNow(b) } label: { Label("开始改为现在", systemImage: "arrow.right.to.line") }
+        }
+        if now > b.start {
+            Button { setEndNow(b) } label: { Label("结束改为现在", systemImage: "stop.circle") }
         }
         if hasGapBefore(b) {
             Button { mergeGapBefore(b) } label: { Label("合并前面空闲", systemImage: "arrow.up.to.line") }
@@ -609,10 +638,18 @@ struct TimelineView: View {
         }
     }
 
-    // 进行中的块（已开始、未结束）才能「立即结束」
-    private func isInProgress(_ b: TimeBlock) -> Bool {
+    // 把开始/结束改为当前时刻
+    private func setStartNow(_ b: TimeBlock) {
         let now = Date.now
-        return b.start < now && now < b.end
+        guard now < b.end else { return }
+        b.start = now
+        afterEdit()
+    }
+    private func setEndNow(_ b: TimeBlock) {
+        let now = Date.now
+        guard now > b.start else { return }
+        b.end = now
+        afterEdit()
     }
     // 同一天内、结束在本块开始之前、最靠近的那个块
     private func previousBlock(before b: TimeBlock) -> TimeBlock? {
@@ -623,14 +660,7 @@ struct TimelineView: View {
         guard let p = previousBlock(before: b) else { return false }
         return p.end < b.start
     }
-    // 左滑：把结束时间设为当前时刻（立即结束进行中的块）
-    private func endNow(_ b: TimeBlock) {
-        let now = Date.now
-        guard now > b.start, now < b.end else { return }
-        b.end = now
-        normalize()
-    }
-    // 右滑：把开始时间提前到前一个块的结束，吸收两者之间的空闲（同类同名则被 coalesce 并成一条）
+    // 把开始时间提前到前一个块的结束，吸收两者之间的空闲（同类同名则被 coalesce 并成一条）
     private func mergeGapBefore(_ b: TimeBlock) {
         guard let p = previousBlock(before: b), p.end < b.start else { return }
         b.start = p.end
