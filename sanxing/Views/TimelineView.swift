@@ -287,25 +287,29 @@ struct TimelineView: View {
                           systemImage: "rectangle.fill.badge.plus")
                 }
                 .disabled(selectedIdleCount == 0)
-                Spacer()
                 if let b = singleBlock {
                     if Date.now < b.end {   // 开始改为现在
+                        Spacer()
                         Button { setStartNow(b); exitSelection() } label: { Image(systemName: "arrow.right.to.line") }
                     }
                     if Date.now > b.start {   // 结束改为现在
+                        Spacer()
                         Button { setEndNow(b); exitSelection() } label: { Image(systemName: "stop.circle") }
                     }
                     if selectedIdleCount > 0 {   // 并入选中空闲
+                        Spacer()
                         Button { mergeSelected() } label: { Image(systemName: "arrow.triangle.merge") }
                     }
                     if hasGapBefore(b) {   // 合并前面空闲
+                        Spacer()
                         Button { mergeGapBefore(b); exitSelection() } label: { Image(systemName: "arrow.up.to.line") }
                     }
                     if hasGapAfter(b) {    // 合并后面空闲
+                        Spacer()
                         Button { mergeGapAfter(b); exitSelection() } label: { Image(systemName: "arrow.down.to.line") }
                     }
-                    Spacer()
                 }
+                Spacer()
                 Button(role: .destructive) { deleteSelected() } label: {
                     Label("删除\(selected.isEmpty ? "" : " \(selected.count)")", systemImage: "trash")
                 }
