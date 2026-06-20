@@ -100,10 +100,6 @@ struct TimelineView: View {
                     LazyVStack(spacing: 0) {
                         ForEach(days, id: \.self) { day in
                             dayHeader(day)
-                                .onAppear {
-                                    if day == days.first { extendPast(proxy) }
-                                    if day == days.last { extendFuture() }
-                                }
                             ForEach(visibleHourStarts(of: day), id: \.self) { hs in
                                 hourRow(hs)
                                     .id(hs)
@@ -343,25 +339,17 @@ struct TimelineView: View {
 
     // MARK: - 窗口 / 滚动
 
+    // 窗口跨度：以中心天为基准前后各 windowRadius 天（够连续滚动多天；不在窗口内的目标由 goToDay 重建窗口）
+    private static let windowRadius = 30
+
     private func setupIfNeeded(_ proxy: ScrollViewProxy) {
         guard days.isEmpty else { return }
         let t = Date.now.startOfDay
-        days = (-14...14).map { t.addingDays($0) }
+        days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
         focusedDay = t
         let vis = visibleHourStarts(of: t)
         let target = vis.last(where: { $0 <= nowHourStart }) ?? vis.first
         if let target { DispatchQueue.main.async { proxy.scrollTo(target, anchor: .top) } }
-    }
-
-    private func extendPast(_ proxy: ScrollViewProxy) {
-        guard let first = days.first else { return }
-        let anchorID = dayHeaderID(first)
-        days.insert(contentsOf: (1...7).map { first.addingDays(-$0) }.sorted(), at: 0)
-        DispatchQueue.main.async { proxy.scrollTo(anchorID, anchor: .top) }   // 前插后重锚，避免跳动
-    }
-    private func extendFuture() {
-        guard let last = days.last else { return }
-        days.append(contentsOf: (1...7).map { last.addingDays($0) })
     }
 
     // 顶部贴近视口的那一行所属天 → focusedDay
@@ -376,8 +364,10 @@ struct TimelineView: View {
 
     private func goToDay(_ day: Date) {
         let d = day.startOfDay
-        if d < (days.first ?? d) || d > (days.last ?? d) {
-            days = (-14...14).map { d.addingDays($0) }   // 目标在窗口外 → 以它为中心重建窗口
+        // 目标接近/超出窗口边缘 → 以它为中心重建窗口（即可继续往更早/更晚浏览）
+        let nearEdge = d <= (days.first ?? d).addingDays(2) || d >= (days.last ?? d).addingDays(-2)
+        if nearEdge {
+            days = (-Self.windowRadius...Self.windowRadius).map { d.addingDays($0) }
         }
         focusedDay = d
         scrollTarget = dayHeaderID(d)
