@@ -1,11 +1,11 @@
-// Views/TimelineView.swift — 今日：整点 1 小时块；点选 + 长按拖拽多选；空闲可选并批量填充
+// Views/TimelineView.swift — 今日：多天无缝纵向滚动；整点 1 小时块；点选 + 长按拖拽多选
 import SwiftUI
 import SwiftData
 
-// 记录各整点行在时间轴坐标系中的 frame，用于拖拽时命中
+// 记录各整点行（按 hour-start Date）在时间轴坐标系中的 frame，用于拖拽命中 + 焦点天跟踪
 private struct RowFrameKey: PreferenceKey {
-    static var defaultValue: [Int: CGRect] = [:]
-    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+    static var defaultValue: [Date: CGRect] = [:]
+    static func reduce(value: inout [Date: CGRect], nextValue: () -> [Date: CGRect]) {
         value.merge(nextValue()) { _, new in new }
     }
 }
@@ -15,80 +15,121 @@ struct TimelineView: View {
     @Query(sort: \TimeBlock.start, order: .forward) private var allBlocks: [TimeBlock]
     @Query private var customCats: [CustomCategory]
 
-    @State private var selectedDay: Date = .now
+    @State private var days: [Date] = []            // 渲染窗口（startOfDay 升序）
+    @State private var focusedDay: Date = Date.now.startOfDay   // 顶部贴近的那天（随滚动更新）
     @State private var editing: TimeBlock?
     @State private var newBlock: NewBlock?
     @State private var selectionMode = false
     @State private var selected: Set<PersistentIdentifier> = []   // 选中的已有块
-    @State private var selectedHours: Set<Int> = []               // 选中的空闲整点
+    @State private var selectedHourStarts: Set<Date> = []         // 选中的空闲整点（按 hour-start）
     @State private var showFillDialog = false
     @State private var showDatePicker = false
+    @State private var datePickerDay = Date.now
 
-    @State private var rowFrames: [Int: CGRect] = [:]
-    @State private var dragAnchorHour: Int?
+    @State private var rowFrames: [Date: CGRect] = [:]
+    @State private var dragAnchor: Date?
+    @State private var scrollTarget: String?        // 顶部导航跳转目标（dayHeaderID）
 
-    private struct NewBlock: Identifiable { let hour: Int; var id: Int { hour } }
+    private struct NewBlock: Identifiable { let hourStart: Date; var id: Date { hourStart } }
 
-    private var dayBlocks: [TimeBlock] {
-        allBlocks.filter { $0.start.isSameDay(as: selectedDay) }
+    // MARK: - 取数（按天 / 按 hour-start）
+
+    private func dayBlocks(of day: Date) -> [TimeBlock] {
+        allBlocks.filter { $0.start.isSameDay(as: day) }
     }
-    private var totalTracked: TimeInterval { dayBlocks.reduce(0) { $0 + $1.duration } }
     // 在该整点起始的块
-    private func blocksStarting(inHour h: Int) -> [TimeBlock] {
-        dayBlocks.filter { Calendar.current.component(.hour, from: $0.start) == h }
-    }
-    // 在更早整点起始、却延伸覆盖此整点的多小时块；用它把被覆盖整点并入上方块、左侧钟点一并隐藏
-    private func coveringBlock(inHour h: Int) -> TimeBlock? {
+    private func blocksStarting(at hs: Date) -> [TimeBlock] {
         let cal = Calendar.current
-        guard let hStart = cal.date(bySettingHour: h, minute: 0, second: 0, of: selectedDay.startOfDay)
-        else { return nil }
-        return dayBlocks.first { cal.component(.hour, from: $0.start) != h && $0.start <= hStart && $0.end > hStart }
+        let h = cal.component(.hour, from: hs)
+        return allBlocks.filter { $0.start.isSameDay(as: hs) && cal.component(.hour, from: $0.start) == h }
     }
-    // 被多小时块覆盖的整点不再单独成行（合并时间后左侧钟点也随之合并）
-    private var visibleHours: [Int] { (0..<24).filter { coveringBlock(inHour: $0) == nil } }
-    private var emptyHours: [Int] { visibleHours.filter { blocksStarting(inHour: $0).isEmpty } }
-    private var nowHour: Int { Calendar.current.component(.hour, from: .now) }
-    // 当前时刻是否落在此可见行内：自身就是当前整点，或此行的多小时块覆盖了当前整点
-    private func rowContainsNow(_ h: Int) -> Bool {
-        guard selectedDay.isSameDay(as: .now) else { return false }
-        if h == nowHour { return true }
+    // 在更早整点起始、却延伸覆盖此整点的多小时块（同一天内）→ 该整点不单独成行
+    private func coveringBlock(at hs: Date) -> TimeBlock? {
         let cal = Calendar.current
-        guard let nowStart = cal.date(bySettingHour: nowHour, minute: 0, second: 0,
-                                      of: selectedDay.startOfDay) else { return false }
-        return blocksStarting(inHour: h).contains { $0.start <= nowStart && $0.end > nowStart }
+        let h = cal.component(.hour, from: hs)
+        return allBlocks.first {
+            $0.start.isSameDay(as: hs) && cal.component(.hour, from: $0.start) != h
+                && $0.start <= hs && $0.end > hs
+        }
     }
-    private var totalSelected: Int { selected.count + selectedHours.count }
-    // 全选只针对空闲整点（默认不选已有块）
-    private var allSelected: Bool { !emptyHours.isEmpty && selectedHours.count == emptyHours.count }
-    // 仅 1 个块 + 若干空闲被选中 → 可把空闲并入该块（拉长覆盖整段）
-    private var canMerge: Bool { selected.count == 1 && !selectedHours.isEmpty }
+    private func hourStarts(of day: Date) -> [Date] {
+        let d0 = day.startOfDay
+        return (0..<24).compactMap { Calendar.current.date(byAdding: .hour, value: $0, to: d0) }
+    }
+    private func visibleHourStarts(of day: Date) -> [Date] {
+        hourStarts(of: day).filter { coveringBlock(at: $0) == nil }
+    }
+    private func emptyHourStarts(of day: Date) -> [Date] {
+        visibleHourStarts(of: day).filter { blocksStarting(at: $0).isEmpty }
+    }
+    // 窗口内全部可见 hour-start（升序），供范围拖拽
+    private var allVisibleHourStarts: [Date] { days.flatMap { visibleHourStarts(of: $0) } }
+
+    private var nowHourStart: Date {
+        let cal = Calendar.current
+        return cal.date(bySettingHour: cal.component(.hour, from: .now), minute: 0, second: 0,
+                        of: Date.now.startOfDay) ?? Date.now.startOfDay
+    }
+    // 当前时刻是否落在此行（自身就是当前整点，或此行多小时块覆盖当前整点）
+    private func rowContainsNow(_ hs: Date) -> Bool {
+        guard hs.isSameDay(as: .now) else { return false }
+        let cal = Calendar.current
+        if cal.component(.hour, from: hs) == cal.component(.hour, from: .now) { return true }
+        let ns = nowHourStart
+        return blocksStarting(at: hs).contains { $0.start <= ns && $0.end > ns }
+    }
+
+    private var totalSelected: Int { selected.count + selectedHourStarts.count }
+    private var focusedEmpty: [Date] { emptyHourStarts(of: focusedDay) }
+    // 全选只针对「焦点天」的空闲整点
+    private var allSelected: Bool {
+        !focusedEmpty.isEmpty && focusedEmpty.allSatisfy { selectedHourStarts.contains($0) }
+    }
+    private var canMerge: Bool { selected.count == 1 && !selectedHourStarts.isEmpty }
+
+    private func dayHeaderID(_ d: Date) -> String {
+        "hdr-\(Int(d.startOfDay.timeIntervalSinceReferenceDate))"
+    }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        header
-                        ForEach(visibleHours, id: \.self) { h in
-                            hourRow(h)
-                                .id(h)
-                                .background(GeometryReader { geo in
-                                    Color.clear.preference(key: RowFrameKey.self,
-                                        value: [h: geo.frame(in: .named("timeline"))])
-                                })
+                        ForEach(days, id: \.self) { day in
+                            dayHeader(day)
+                                .onAppear {
+                                    if day == days.first { extendPast(proxy) }
+                                    if day == days.last { extendFuture() }
+                                }
+                            ForEach(visibleHourStarts(of: day), id: \.self) { hs in
+                                hourRow(hs)
+                                    .id(hs)
+                                    .background(GeometryReader { geo in
+                                        Color.clear.preference(key: RowFrameKey.self,
+                                            value: [hs: geo.frame(in: .named("timeline"))])
+                                    })
+                            }
                         }
                     }
                     .padding(.horizontal)
                 }
                 .coordinateSpace(name: "timeline")
-                .onPreferenceChange(RowFrameKey.self) { rowFrames = $0 }
-                // 长按某行后不抬手、上下滑动连续多选
+                .onPreferenceChange(RowFrameKey.self) { frames in
+                    rowFrames = frames
+                    updateFocusedDay(frames)
+                }
                 .highPriorityGesture(selectDragGesture)
-                .onAppear {
-                    if selectedDay.isSameDay(as: .now) {
-                        proxy.scrollTo(max(0, nowHour - 1), anchor: .top)
+                .onChange(of: scrollTarget) { _, t in
+                    guard let t else { return }
+                    DispatchQueue.main.async {
+                        withAnimation { proxy.scrollTo(t, anchor: .top) }
+                        scrollTarget = nil
                     }
                 }
+                .onAppear { setupIfNeeded(proxy) }
             }
             .navigationTitle(selectionMode ? "已选 \(totalSelected)" : "今日")
             .navigationBarTitleDisplayMode(.inline)
@@ -112,12 +153,15 @@ struct TimelineView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
-            .sheet(item: $newBlock, onDismiss: afterEdit) { TimeBlockEditorView(day: selectedDay, hour: $0.hour) }
+            .sheet(item: $newBlock, onDismiss: afterEdit) {
+                TimeBlockEditorView(day: $0.hourStart,
+                                    hour: Calendar.current.component(.hour, from: $0.hourStart))
+            }
             .sheet(item: $editing, onDismiss: afterEdit) { TimeBlockEditorView(block: $0) }
             .sheet(isPresented: $showDatePicker) {
                 NavigationStack {
                     VStack {
-                        DatePicker("跳转到", selection: $selectedDay, displayedComponents: .date)
+                        DatePicker("跳转到", selection: $datePickerDay, displayedComponents: .date)
                             .datePickerStyle(.graphical)
                             .environment(\.locale, Locale(identifier: "zh_CN"))
                             .padding()
@@ -127,10 +171,10 @@ struct TimelineView: View {
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button("今天") { selectedDay = .now }
+                            Button("今天") { datePickerDay = .now }
                         }
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("完成") { showDatePicker = false }
+                            Button("完成") { showDatePicker = false; goToDay(datePickerDay) }
                         }
                     }
                 }
@@ -145,13 +189,27 @@ struct TimelineView: View {
         coalesceAdjacent()
     }
 
-    private var header: some View {
-        HStack {
-            Text("已记录 \(formatDuration(totalTracked)) · 共 \(dayBlocks.count) 块")
-                .font(.footnote).foregroundStyle(.secondary)
-            Spacer()
+    // MARK: - 天头（白线分割 + 日期 + 当天小结）
+
+    private func dayHeader(_ day: Date) -> some View {
+        let blocks = dayBlocks(of: day)
+        let total = blocks.reduce(0) { $0 + $1.duration }
+        let isToday = day.isSameDay(as: .now)
+        return VStack(spacing: 6) {
+            Rectangle().fill(.white).frame(height: 1)        // 跨天白线分割
+            HStack {
+                Text(isToday ? "今天" : day.dayTitle)
+                    .font(.subheadline).bold()
+                    .foregroundStyle(isToday ? Color.accentColor : .primary)
+                Spacer()
+                if !blocks.isEmpty {
+                    Text("\(formatDuration(total)) · \(blocks.count) 块")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
         }
-        .padding(.vertical, 8)
+        .padding(.top, 12).padding(.bottom, 4)
+        .id(dayHeaderID(day))
     }
 
     @ToolbarContentBuilder
@@ -165,10 +223,10 @@ struct TimelineView: View {
             }
             ToolbarItemGroup(placement: .bottomBar) {
                 Button { showFillDialog = true } label: {
-                    Label("填充\(selectedHours.isEmpty ? "" : " \(selectedHours.count)")",
+                    Label("填充\(selectedHourStarts.isEmpty ? "" : " \(selectedHourStarts.count)")",
                           systemImage: "rectangle.fill.badge.plus")
                 }
-                .disabled(selectedHours.isEmpty)
+                .disabled(selectedHourStarts.isEmpty)
                 Spacer()
                 if canMerge {
                     Button("合并") { mergeSelected() }
@@ -181,7 +239,9 @@ struct TimelineView: View {
             }
         } else {
             ToolbarItem(placement: .navigationBarLeading) {
-                Button { showDatePicker = true } label: { Image(systemName: "calendar") }
+                Button { datePickerDay = focusedDay; showDatePicker = true } label: {
+                    Image(systemName: "calendar")
+                }
             }
             ToolbarItem(placement: .principal) { dayNav }
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -190,23 +250,25 @@ struct TimelineView: View {
         }
     }
 
-    // 单个整点行
-    private func hourRow(_ h: Int) -> some View {
-        let items = blocksStarting(inHour: h)
-        let isNow = rowContainsNow(h)
+    // MARK: - 行
+
+    private func hourRow(_ hs: Date) -> some View {
+        let items = blocksStarting(at: hs)
+        let isNow = rowContainsNow(hs)
+        let h = Calendar.current.component(.hour, from: hs)
         return HStack(alignment: .top, spacing: 10) {
             Text(String(format: "%02d:00", h))
                 .font(.caption).monospacedDigit()
                 .fontWeight(isNow ? .bold : .regular)
                 .underline(isNow, color: .accentColor)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)   // 任意字体大小都单行
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(isNow ? Color.accentColor : .secondary)
                 .frame(minWidth: 44, alignment: .leading)
                 .padding(.top, 8)
 
             if items.isEmpty {
-                emptySlot(h)
+                emptySlot(hs)
             } else {
                 VStack(spacing: 6) {
                     ForEach(items) { b in
@@ -219,10 +281,10 @@ struct TimelineView: View {
         .padding(.vertical, 2)
     }
 
-    private func emptySlot(_ h: Int) -> some View {
-        let isSel = selectedHours.contains(h)
+    private func emptySlot(_ hs: Date) -> some View {
+        let isSel = selectedHourStarts.contains(hs)
         return Button {
-            if selectionMode { toggleHour(h) } else { newBlock = NewBlock(hour: h) }
+            if selectionMode { toggleHour(hs) } else { newBlock = NewBlock(hourStart: hs) }
         } label: {
             HStack {
                 if selectionMode {
@@ -269,14 +331,56 @@ struct TimelineView: View {
 
     private var dayNav: some View {
         HStack(spacing: 12) {
-            Button { selectedDay = selectedDay.addingDays(-1) } label: { Image(systemName: "chevron.left") }
-            Button { selectedDay = .now } label: {
-                Text(selectedDay.isSameDay(as: .now) ? "今天" : selectedDay.dayTitle)
+            Button { goToDay(focusedDay.addingDays(-1)) } label: { Image(systemName: "chevron.left") }
+            Button { goToDay(.now) } label: {
+                Text(focusedDay.isSameDay(as: .now) ? "今天" : focusedDay.dayTitle)
                     .font(.subheadline).bold().lineLimit(1).fixedSize()
             }
             .buttonStyle(.plain)
-            Button { selectedDay = selectedDay.addingDays(1) } label: { Image(systemName: "chevron.right") }
+            Button { goToDay(focusedDay.addingDays(1)) } label: { Image(systemName: "chevron.right") }
         }
+    }
+
+    // MARK: - 窗口 / 滚动
+
+    private func setupIfNeeded(_ proxy: ScrollViewProxy) {
+        guard days.isEmpty else { return }
+        let t = Date.now.startOfDay
+        days = (-14...14).map { t.addingDays($0) }
+        focusedDay = t
+        let vis = visibleHourStarts(of: t)
+        let target = vis.last(where: { $0 <= nowHourStart }) ?? vis.first
+        if let target { DispatchQueue.main.async { proxy.scrollTo(target, anchor: .top) } }
+    }
+
+    private func extendPast(_ proxy: ScrollViewProxy) {
+        guard let first = days.first else { return }
+        let anchorID = dayHeaderID(first)
+        days.insert(contentsOf: (1...7).map { first.addingDays(-$0) }.sorted(), at: 0)
+        DispatchQueue.main.async { proxy.scrollTo(anchorID, anchor: .top) }   // 前插后重锚，避免跳动
+    }
+    private func extendFuture() {
+        guard let last = days.last else { return }
+        days.append(contentsOf: (1...7).map { last.addingDays($0) })
+    }
+
+    // 顶部贴近视口的那一行所属天 → focusedDay
+    private func updateFocusedDay(_ frames: [Date: CGRect]) {
+        let crossing = frames.first { $0.value.minY <= 1 && $0.value.maxY > 1 }?.key
+        let fallback = frames.filter { $0.value.minY >= 0 }.min { $0.value.minY < $1.value.minY }?.key
+        if let key = crossing ?? fallback {
+            let d = key.startOfDay
+            if d != focusedDay { focusedDay = d }
+        }
+    }
+
+    private func goToDay(_ day: Date) {
+        let d = day.startOfDay
+        if d < (days.first ?? d) || d > (days.last ?? d) {
+            days = (-14...14).map { d.addingDays($0) }   // 目标在窗口外 → 以它为中心重建窗口
+        }
+        focusedDay = d
+        scrollTarget = dayHeaderID(d)
     }
 
     // MARK: - 长按拖拽多选
@@ -288,32 +392,32 @@ struct TimelineView: View {
                 guard case .second(true, let drag?) = value else { return }
                 if !selectionMode {
                     selectionMode = true
-                    selected.removeAll(); selectedHours.removeAll()
+                    selected.removeAll(); selectedHourStarts.removeAll()
                 }
-                guard let h = hour(at: drag.location) else { return }
-                if dragAnchorHour == nil { dragAnchorHour = h }
-                selectRange(from: dragAnchorHour ?? h, to: h)
+                guard let hs = hourStart(at: drag.location) else { return }
+                if dragAnchor == nil { dragAnchor = hs }
+                selectRange(from: dragAnchor ?? hs, to: hs)
             }
-            .onEnded { _ in dragAnchorHour = nil }
+            .onEnded { _ in dragAnchor = nil }
     }
 
-    private func hour(at point: CGPoint) -> Int? {
-        for (h, rect) in rowFrames where point.y >= rect.minY && point.y <= rect.maxY { return h }
+    private func hourStart(at point: CGPoint) -> Date? {
+        for (hs, rect) in rowFrames where point.y >= rect.minY && point.y <= rect.maxY { return hs }
         return nil
     }
 
-    private func selectRange(from a: Int, to b: Int) {
-        let lo = min(a, b), hi = max(a, b)
-        var blockIDs: Set<PersistentIdentifier> = []
-        var hours: Set<Int> = []
-        for h in lo...hi {
-            let items = blocksStarting(inHour: h)
-            if !items.isEmpty { blockIDs.formUnion(items.map { $0.id }) }
-            else if let cov = coveringBlock(inHour: h) { blockIDs.insert(cov.id) }  // 被覆盖整点归入其多小时块
-            else { hours.insert(h) }
+    private func selectRange(from a: Date, to b: Date) {
+        let ordered = allVisibleHourStarts
+        guard let ia = ordered.firstIndex(of: a), let ib = ordered.firstIndex(of: b) else { return }
+        let lo = min(ia, ib), hi = max(ia, ib)
+        var ids: Set<PersistentIdentifier> = []
+        var hours: Set<Date> = []
+        for hs in ordered[lo...hi] {
+            let items = blocksStarting(at: hs)
+            if items.isEmpty { hours.insert(hs) } else { ids.formUnion(items.map { $0.id }) }
         }
-        selected = blockIDs
-        selectedHours = hours
+        selected = ids
+        selectedHourStarts = hours
     }
 
     // MARK: - 点选 / 批量操作
@@ -325,56 +429,50 @@ struct TimelineView: View {
             editing = b
         }
     }
-    private func toggleHour(_ h: Int) {
-        if selectedHours.contains(h) { selectedHours.remove(h) } else { selectedHours.insert(h) }
+    private func toggleHour(_ hs: Date) {
+        if selectedHourStarts.contains(hs) { selectedHourStarts.remove(hs) } else { selectedHourStarts.insert(hs) }
     }
     private func toggleSelectAll() {
-        // 全选/取消全选只覆盖空闲整点，保留用户手动选中的块
-        if allSelected { selectedHours.removeAll() } else { selectedHours = Set(emptyHours) }
+        if allSelected { focusedEmpty.forEach { selectedHourStarts.remove($0) } }
+        else { focusedEmpty.forEach { selectedHourStarts.insert($0) } }
     }
     private func exitSelection() {
-        selectionMode = false; selected.removeAll(); selectedHours.removeAll(); dragAnchorHour = nil
+        selectionMode = false; selected.removeAll(); selectedHourStarts.removeAll(); dragAnchor = nil
     }
     private func deleteSelected() {
-        for b in dayBlocks where selected.contains(b.id) { ctx.delete(b) }
+        for b in allBlocks where selected.contains(b.id) { ctx.delete(b) }
         exitSelection()
     }
-    // 把选中的空闲整点并入唯一选中的块：块拉长到覆盖整段（保留块原有的更早起/更晚止）
+    // 把选中的空闲整点并入唯一选中的块：块拉长覆盖整段（保留块原有更早起/更晚止）
     private func mergeSelected() {
-        guard let b = dayBlocks.first(where: { selected.contains($0.id) }) else { return }
+        guard let b = allBlocks.first(where: { selected.contains($0.id) }) else { return }
         let cal = Calendar.current
-        let blockHour = cal.component(.hour, from: b.start)
-        let hours = selectedHours.union([blockHour])
-        guard let lo = hours.min(), let hi = hours.max() else { return }
-        let day0 = selectedDay.startOfDay
-        let loStart = cal.date(bySettingHour: lo, minute: 0, second: 0, of: day0) ?? day0
-        let hiEnd = (cal.date(bySettingHour: hi, minute: 0, second: 0, of: day0) ?? day0)
-            .addingTimeInterval(3600)
-        b.start = min(b.start, loStart)
-        b.end = max(b.end, hiEnd)
+        let bhs = cal.date(bySettingHour: cal.component(.hour, from: b.start), minute: 0, second: 0,
+                           of: b.start.startOfDay) ?? b.start
+        let starts = selectedHourStarts.union([bhs])
+        guard let lo = starts.min(), let hi = starts.max() else { return }
+        b.start = min(b.start, lo)
+        b.end = max(b.end, hi.addingTimeInterval(3600))
         coalesceAdjacent()
         exitSelection()
     }
 
     private func fillSelectedHours(with key: String) {
-        let cal = Calendar.current
-        for h in selectedHours {
-            let start = cal.date(bySettingHour: h, minute: 0, second: 0, of: selectedDay.startOfDay)
-                ?? selectedDay.startOfDay
-            ctx.insert(TimeBlock(start: start, end: start.addingTimeInterval(3600),
-                                 title: "", category: key))
+        for hs in selectedHourStarts {
+            ctx.insert(TimeBlock(start: hs, end: hs.addingTimeInterval(3600), title: "", category: key))
         }
         coalesceAdjacent()
         exitSelection()
     }
 
-    // 相邻且同类同名的块自动并成一个（如连续填充的多个 1 小时同类块、编辑后与邻块相接）
+    // 相邻且同类同名、且**同一自然日内**的块自动并成一个（跨天不合并）
     private func coalesceAdjacent() {
-        let sorted = dayBlocks.sorted { $0.start < $1.start }
+        let sorted = allBlocks.sorted { $0.start < $1.start }
         var prev: TimeBlock?
         for b in sorted {
-            if let p = prev, p.category == b.category, p.title == b.title, b.start <= p.end {
-                p.end = max(p.end, b.end)           // 接上/重叠 → 拉长前块
+            if let p = prev, p.category == b.category, p.title == b.title,
+               b.start <= p.end, p.start.isSameDay(as: b.start) {
+                p.end = max(p.end, b.end)
                 if p.note.isEmpty { p.note = b.note }
                 ctx.delete(b)
             } else {
@@ -385,13 +483,12 @@ struct TimelineView: View {
 
     // MARK: - 跨天复制
 
-    // 跨午夜的块，在其后每个被覆盖的日子里按「空闲时段」复制一份同类块；
-    // 只填空闲、不覆盖已有块（次日已有块则跳过）。幂等：副本本身不跨天，重跑时旧副本已占槽自动跳过。
+    // 跨午夜的块，在其后每个被覆盖的日子里按「空闲时段」复制一份同类块；只填空闲、不覆盖已有块。幂等。
     private func propagateCrossDay() {
-        let snapshot = allBlocks               // 快照，避免边遍历边插入
+        let snapshot = allBlocks
         for b in snapshot {
-            let firstMidnight = b.start.startOfDay.addingDays(1)   // 起始日之后的第一个午夜
-            guard b.end > firstMidnight else { continue }          // 不跨天则跳过
+            let firstMidnight = b.start.startOfDay.addingDays(1)
+            guard b.end > firstMidnight else { continue }
             var dayStart = firstMidnight
             while dayStart < b.end {
                 let dayEnd = dayStart.addingDays(1)
@@ -403,7 +500,6 @@ struct TimelineView: View {
         }
     }
 
-    // 在 [from, to) 内，挖掉与已有块（skip 除外）重叠的部分，对每段剩余空闲插入同类块
     private func copyIntoFreeSlots(category: String, title: String, note: String,
                                    from: Date, to: Date,
                                    existing: [TimeBlock], skip: PersistentIdentifier) {

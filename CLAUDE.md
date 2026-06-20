@@ -82,13 +82,16 @@ sanxing/
 
 ## 今日时间轴（TimelineView）— 交互重点
 
-默认把一天切成 **24 个整点 1 小时槽**（0:00–23:00），是产品核心形态。
+把每天切成 **24 个整点 1 小时槽**（0:00–23:00），**多天纵向无缝滚动**连续浏览，是产品核心形态。
 
+- **行的 key 是 hour-start `Date`**（某天某整点 = `day.startOfDay + h 小时`），不再是单纯 `Int` 小时。渲染一个**天的窗口** `days: [Date]`（初始 today±14）；首/末天 `onAppear` 往前/后各拼 7 天，前插后用 `ScrollViewReader.scrollTo(旧首天 header, .top)` **重锚避免跳动**。
 - 用 `ScrollView + LazyVStack`（**不是 List**）——List 内拖拽选择会与滚动冲突。
-- 每个整点一行：左侧钟点（`lineLimit(1)+fixedSize`，任意 Dynamic Type 都单行）；右侧若该整点有块（按 `start` 的小时归类）则展示块卡片，否则显示「空闲 ＋」。
-- 看「今天」时 `ScrollViewReader` 自动滚到当前钟点并高亮。
-- 左侧整点时间务必保持单行：`Text(...).lineLimit(1).fixedSize(horizontal: true, vertical: false)`，列宽用 `minWidth` 不用固定 `width`（大字号会截断）。
-- 顶栏（非多选态）：左上**日历按钮** → sheet 里的 graphical `DatePicker`（zh_CN，含「今天」）跳转 `selectedDay`；中间日期前后导航 `dayNav`；右上「选择」进多选。
+- 结构：`ForEach(days){ dayHeader(day); ForEach(visibleHourStarts(of:day)){ hourRow(hs).id(hs) } }`。`dayHeader` = **白线分割**（`Rectangle().fill(.white).frame(height:1)`）+ 日期（今天高亮）+ 当天小结。
+- **按天独立**：`coveringBlock`/`visibleHourStarts` 都加同天守卫，跨午夜的块不会覆盖到下一天；`coalesceAdjacent` 只合并**同一自然日内**相邻同类块（`isSameDay` 守卫），跨天不并。
+- `focusedDay` 由滚动推导（`updateFocusedDay`：取贴近视口顶部那行的天），驱动顶部标题、全选范围、新建默认天。
+- 看「今天」时 `ScrollViewReader` 自动滚到当前钟点并高亮；当前时刻所在行左侧钟点加粗+下划线（`rowContainsNow`，含被多小时块覆盖的情形）。
+- 左侧整点时间务必单行：`Text(...).lineLimit(1).fixedSize(...)`，列宽用 `minWidth`。
+- 顶栏（非多选态）：左上**日历按钮** → graphical `DatePicker`（zh_CN）→「完成」`goToDay`；中间 `dayNav` ‹ 焦点天 ›；点击都走 `goToDay`（目标在窗口外则以它为中心重建窗口）→ `scrollTarget` → `proxy.scrollTo(dayHeaderID, .top)`。右上「选择」进多选。
 
 ### 分类选择（编辑器 & 填充 共用 CategoryGrid）
 
@@ -114,8 +117,8 @@ sanxing/
 ### 选择与批量操作
 
 - **进入多选**：右上「选择」按钮，或**长按任意行**（`LongPressGesture(0.3).sequenced(before: DragGesture)`）。长按后不抬手**上下滑动**连续选中（以长按行为锚点，选锚点→当前行的范围）。快速点按（<0.3s）不触发选择，仍是编辑块/新建空闲。
-- 拖拽命中靠每行上报 frame（`RowFrameKey` PreferenceKey + `.coordinateSpace(name:"timeline")`），`hour(at:)` 按 y 命中。
-- 两套选中集：`selected: Set<PersistentIdentifier>`（真实块）、`selectedHours: Set<Int>`（空闲整点）。
+- 拖拽命中靠每行上报 frame（`RowFrameKey: [Date:CGRect]` + `.coordinateSpace(name:"timeline")`），`hourStart(at:)` 按 y 命中；`selectRange` 在 `allVisibleHourStarts`（窗口内全部可见 hour-start，升序）里取子区间，**可跨天**。
+- 两套选中集：`selected: Set<PersistentIdentifier>`（真实块）、`selectedHourStarts: Set<Date>`（空闲整点）。全选只覆盖 `focusedDay` 的空闲。
 - 底部工具栏（多选态，`.bottomBar`）按上下文出现：
   - **填充**：选中空闲整点 → 弹 `CategoryGrid` 选分类后各建 1 小时块（`fillSelectedHours(with: key)`）。
   - **合并**：仅当「恰好 1 个块 + 若干空闲」被选中（`canMerge`）→ 把该块拉长覆盖整段（`mergeSelected`，保留块原有更早起/更晚止）。
