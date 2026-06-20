@@ -95,7 +95,11 @@ struct TimelineView: View {
     private var allSelected: Bool {
         !focusedEmpty.isEmpty && focusedEmpty.allSatisfy { selectedHourStarts.contains($0) }
     }
-    private var canMerge: Bool { selected.count == 1 && !selectedHourStarts.isEmpty }
+    // 恰好选中一个块时返回它（底部「操作」菜单用）
+    private var singleBlock: TimeBlock? {
+        guard selected.count == 1, let id = selected.first else { return nil }
+        return allBlocks.first { $0.id == id }
+    }
 
     private func dayHeaderID(_ d: Date) -> String {
         "hdr-\(Int(d.startOfDay.timeIntervalSinceReferenceDate))"
@@ -127,8 +131,7 @@ struct TimelineView: View {
                     rowFrames = frames
                     updateFocusedDay(frames)
                 }
-                // 仅在多选态拦截长按拖拽（范围选择）；普通态放行，让块/空闲段的长按菜单生效
-                .highPriorityGesture(selectDragGesture, including: selectionMode ? .all : .subviews)
+                .highPriorityGesture(selectDragGesture)
                 .onChange(of: scrollTarget) { _, t in
                     guard let t else { return }
                     DispatchQueue.main.async {
@@ -278,8 +281,36 @@ struct TimelineView: View {
                 }
                 .disabled(selectedHourStarts.isEmpty)
                 Spacer()
-                if canMerge {
-                    Button("合并") { mergeSelected() }
+                if let b = singleBlock {
+                    Menu {
+                        if Date.now < b.end {
+                            Button { setStartNow(b); exitSelection() } label: {
+                                Label("开始改为现在", systemImage: "arrow.right.to.line")
+                            }
+                        }
+                        if Date.now > b.start {
+                            Button { setEndNow(b); exitSelection() } label: {
+                                Label("结束改为现在", systemImage: "stop.circle")
+                            }
+                        }
+                        if !selectedHourStarts.isEmpty {
+                            Button { mergeSelected() } label: {
+                                Label("并入选中空闲", systemImage: "arrow.triangle.merge")
+                            }
+                        }
+                        if hasGapBefore(b) {
+                            Button { mergeGapBefore(b); exitSelection() } label: {
+                                Label("合并前面空闲", systemImage: "arrow.up.to.line")
+                            }
+                        }
+                        if hasGapAfter(b) {
+                            Button { mergeGapAfter(b); exitSelection() } label: {
+                                Label("合并后面空闲", systemImage: "arrow.down.to.line")
+                            }
+                        }
+                    } label: {
+                        Label("操作", systemImage: "ellipsis.circle")
+                    }
                     Spacer()
                 }
                 Button(role: .destructive) { deleteSelected() } label: {
@@ -355,37 +386,11 @@ struct TimelineView: View {
             }
         case .block(let b):
             timeLabeledRow(time: b.start, isNow: isNowIn(b.start, b.end)) {
-                let btn = Button { tapBlock(b) } label: { blockCard(b) }.buttonStyle(.plain)
-                if selectionMode { btn } else { btn.contextMenu { blockMenu(b) } }   // 长按菜单（仅普通态）
+                Button { tapBlock(b) } label: { blockCard(b) }.buttonStyle(.plain)
             }
         case .idle(let s, let e):
-            timeLabeledRow(time: s, isNow: isNowIn(s, e)) {
-                if selectionMode { idleGap(s, e) }
-                else { idleGap(s, e).contextMenu { idleMenu(s, e) } }               // 空闲段也可长按合并
-            }
+            timeLabeledRow(time: s, isNow: isNowIn(s, e)) { idleGap(s, e) }
         }
-    }
-
-    // 空闲段长按菜单：并入相邻块（小空闲也归到某个块），或建新块
-    @ViewBuilder
-    private func idleMenu(_ s: Date, _ e: Date) -> some View {
-        if let p = blockEndingAt(s) {
-            Button { p.end = max(p.end, e); afterEdit() } label: {
-                Label("并入上一个块", systemImage: "arrow.up.to.line")
-            }
-        }
-        if let n = blockStartingAt(e) {
-            Button { n.start = min(n.start, s); afterEdit() } label: {
-                Label("并入下一个块", systemImage: "arrow.down.to.line")
-            }
-        }
-        Button { newBlock = NewBlock(start: s, end: e) } label: { Label("新建块", systemImage: "plus") }
-    }
-    private func blockEndingAt(_ t: Date) -> TimeBlock? {
-        allBlocks.first { $0.end == t && $0.start.isSameDay(as: t) }
-    }
-    private func blockStartingAt(_ t: Date) -> TimeBlock? {
-        allBlocks.first { $0.start == t && $0.start.isSameDay(as: t) }
     }
 
     private func timeLabeledRow<C: View>(time: Date, isNow: Bool,
@@ -618,25 +623,7 @@ struct TimelineView: View {
         }
     }
 
-    // MARK: - 块长按菜单（立即结束 / 合并前面空闲 / 编辑 / 删除）
-
-    @ViewBuilder
-    private func blockMenu(_ b: TimeBlock) -> some View {
-        let now = Date.now
-        if now < b.end {
-            Button { setStartNow(b) } label: { Label("开始改为现在", systemImage: "arrow.right.to.line") }
-        }
-        if now > b.start {
-            Button { setEndNow(b) } label: { Label("结束改为现在", systemImage: "stop.circle") }
-        }
-        if hasGapBefore(b) {
-            Button { mergeGapBefore(b) } label: { Label("合并前面空闲", systemImage: "arrow.up.to.line") }
-        }
-        Button { editing = b } label: { Label("编辑", systemImage: "pencil") }
-        Button(role: .destructive) { ctx.delete(b); coalesceAdjacent() } label: {
-            Label("删除", systemImage: "trash")
-        }
-    }
+    // MARK: - 单块操作（底部「操作」菜单调用）
 
     // 把开始/结束改为当前时刻
     private func setStartNow(_ b: TimeBlock) {
@@ -655,6 +642,21 @@ struct TimelineView: View {
     private func previousBlock(before b: TimeBlock) -> TimeBlock? {
         allBlocks.filter { $0.id != b.id && $0.start.isSameDay(as: b.start) && $0.end <= b.start }
             .max { $0.end < $1.end }
+    }
+    // 同一天内、开始在本块结束之后、最靠近的那个块
+    private func nextBlock(after b: TimeBlock) -> TimeBlock? {
+        allBlocks.filter { $0.id != b.id && $0.start.isSameDay(as: b.start) && $0.start >= b.end }
+            .min { $0.start < $1.start }
+    }
+    private func hasGapAfter(_ b: TimeBlock) -> Bool {
+        guard let n = nextBlock(after: b) else { return false }
+        return n.start > b.end
+    }
+    // 把结束延后到下一个块的开始，吸收后面的空闲
+    private func mergeGapAfter(_ b: TimeBlock) {
+        guard let n = nextBlock(after: b), n.start > b.end else { return }
+        b.end = n.start
+        afterEdit()
     }
     private func hasGapBefore(_ b: TimeBlock) -> Bool {
         guard let p = previousBlock(before: b) else { return false }

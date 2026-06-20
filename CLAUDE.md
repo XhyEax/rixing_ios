@@ -89,10 +89,7 @@ sanxing/
 - 结构：`ForEach(days){ dayHeader(day); ForEach(visibleHourStarts(of:day)){ hourRow(hs).id(hs) } }`。`dayHeader` = **分割线**（`Rectangle().fill(Color(.separator))`，自适应深浅色）+ 日期（今天高亮）+ 当天小结。
 - **整点内按条目渲染**（`hourItems(hs)` → `[HourItem]`）：保留整点网格的同时，把整点里「块 / 块之间任意长度的空闲段」按时间排开。空整点 → `.empty`（可多选/填充的「空闲 ＋」）；有块的整点 → 块 + 块前/块后到整点末的 `.idle` 段（如块 3:00–3:50、下个块 4:00 → 渲染 3:50 的空闲段）。每行左侧标**该条目的真实起始时间**（`clock` = HH:mm，块用 `b.start`、空闲段用段起点），不再统一用整点。空闲段点按按其精确起止建块（`TimeBlockEditorView(start:end:)`）。当前行高亮用 `isNowIn(s,e)`。
 - **覆盖/重叠处理**：`visibleHourStarts` —— 有块**起始**于该整点就显示（即使被前一个多小时块覆盖，否则那个块会消失）；覆盖块在整点内结束、留有空闲也显示（渲染剩余空闲段）；只有「整段被覆盖且无块」才隐藏。`hourItems` 的游标会跳过被前块占用的开头。
-- **长按菜单**（`.contextMenu`，普通态生效；取代左右滑——滑动与滚动/多选手势打架）：
-  - **块**：`开始改为现在`（`now<end` 时）/ `结束改为现在`（`now>start` 时）/ `合并前面空闲`（`hasGapBefore`）/ `编辑` / `删除`。
-  - **空闲段**：`并入上一个块` / `并入下一个块`（`blockEndingAt`/`blockStartingAt` 找相邻块，把空闲并进去——小空闲也归到块）/ `新建块`。
-- **手势分流**：长按拖拽范围多选用 `.highPriorityGesture(selectDragGesture, including: selectionMode ? .all : .subviews)`——**仅多选态拦截**，普通态放行让块/空闲段的长按 `contextMenu` 生效。代价：进入多选改为**只走右上「选择」按钮**（长按不再进多选），进多选后再长按拖拽做范围选择。
+- **单块操作走底部「操作」菜单**（多选态、恰好选中 1 个块 `singleBlock` 时出现的 `Menu`，不是每块的 contextMenu——之前误做成 contextMenu 已撤回）：`开始改为现在`（`now<end`）/ `结束改为现在`（`now>start`）/ `并入选中空闲`（同时选了空闲整点 → `mergeSelected`）/ `合并前面空闲`（`hasGapBefore`→`mergeGapBefore` 提前 start）/ `合并后面空闲`（`hasGapAfter`→`mergeGapAfter` 延后 end）。长按进多选仍是 `selectDragGesture`（未改）。
 - **编辑后重叠弹窗**：`afterEdit` = `normalize()` + `checkOverlap()`。若不同分类的相邻块时间重叠（同类已被 coalesce 合并），弹 `confirmationDialog` 让用户选：把后块开始改到前块结束 / 把前块结束改到后块开始 / 保持重叠。解决后再 `afterEdit` 递归检测下一处。
 - **按天独立**：`coveringBlock`/`visibleHourStarts` 都加同天守卫，跨午夜的块不会覆盖到下一天；`coalesceAdjacent` 只合并**同一自然日内**相邻同类块（`isSameDay` 守卫），跨天不并。
 - `focusedDay` 由滚动推导（`updateFocusedDay`：取贴近视口顶部那行的天），驱动顶部标题、全选范围、新建默认天。
