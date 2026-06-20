@@ -5,11 +5,12 @@ import SwiftUI
 
 @Model
 final class TimeBlock {
-    var start: Date
-    var end: Date
-    var title: String
-    var category: String   // 分类 key，见 BlockCategory.rawValue
-    var note: String
+    // 默认值是 CloudKit 同步的硬性要求（每个属性须可选或有默认值）；实际值由 init 覆盖
+    var start: Date = Date.now
+    var end: Date = Date.now
+    var title: String = ""
+    var category: String = BlockCategory.other.rawValue   // 分类 key，见 BlockCategory.rawValue
+    var note: String = ""
 
     init(start: Date, end: Date, title: String,
          category: String = BlockCategory.other.rawValue, note: String = "") {
