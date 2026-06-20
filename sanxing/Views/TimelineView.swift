@@ -31,10 +31,20 @@ struct TimelineView: View {
         allBlocks.filter { $0.start.isSameDay(as: selectedDay) }
     }
     private var totalTracked: TimeInterval { dayBlocks.reduce(0) { $0 + $1.duration } }
-    private func blocks(inHour h: Int) -> [TimeBlock] {
+    // 在该整点起始的块
+    private func blocksStarting(inHour h: Int) -> [TimeBlock] {
         dayBlocks.filter { Calendar.current.component(.hour, from: $0.start) == h }
     }
-    private var emptyHours: [Int] { (0..<24).filter { blocks(inHour: $0).isEmpty } }
+    // 在更早整点起始、却延伸覆盖此整点的多小时块；用它把被覆盖整点并入上方块、左侧钟点一并隐藏
+    private func coveringBlock(inHour h: Int) -> TimeBlock? {
+        let cal = Calendar.current
+        guard let hStart = cal.date(bySettingHour: h, minute: 0, second: 0, of: selectedDay.startOfDay)
+        else { return nil }
+        return dayBlocks.first { cal.component(.hour, from: $0.start) != h && $0.start <= hStart && $0.end > hStart }
+    }
+    // 被多小时块覆盖的整点不再单独成行（合并时间后左侧钟点也随之合并）
+    private var visibleHours: [Int] { (0..<24).filter { coveringBlock(inHour: $0) == nil } }
+    private var emptyHours: [Int] { visibleHours.filter { blocksStarting(inHour: $0).isEmpty } }
     private var nowHour: Int { Calendar.current.component(.hour, from: .now) }
     private var totalSelected: Int { selected.count + selectedHours.count }
     private var allSelected: Bool {
@@ -50,7 +60,7 @@ struct TimelineView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         header
-                        ForEach(0..<24, id: \.self) { h in
+                        ForEach(visibleHours, id: \.self) { h in
                             hourRow(h)
                                 .id(h)
                                 .background(GeometryReader { geo in
@@ -80,8 +90,8 @@ struct TimelineView: View {
                 }
                 Button("取消", role: .cancel) {}
             }
-            .sheet(item: $newBlock) { TimeBlockEditorView(day: selectedDay, hour: $0.hour) }
-            .sheet(item: $editing) { TimeBlockEditorView(block: $0) }
+            .sheet(item: $newBlock, onDismiss: coalesceAdjacent) { TimeBlockEditorView(day: selectedDay, hour: $0.hour) }
+            .sheet(item: $editing, onDismiss: coalesceAdjacent) { TimeBlockEditorView(block: $0) }
         }
     }
 
@@ -131,7 +141,7 @@ struct TimelineView: View {
 
     // 单个整点行
     private func hourRow(_ h: Int) -> some View {
-        let items = blocks(inHour: h)
+        let items = blocksStarting(inHour: h)
         let isNow = selectedDay.isSameDay(as: .now) && h == nowHour
         return HStack(alignment: .top, spacing: 10) {
             Text(String(format: "%02d:00", h))
@@ -243,8 +253,10 @@ struct TimelineView: View {
         var blockIDs: Set<PersistentIdentifier> = []
         var hours: Set<Int> = []
         for h in lo...hi {
-            let items = blocks(inHour: h)
-            if items.isEmpty { hours.insert(h) } else { blockIDs.formUnion(items.map { $0.id }) }
+            let items = blocksStarting(inHour: h)
+            if !items.isEmpty { blockIDs.formUnion(items.map { $0.id }) }
+            else if let cov = coveringBlock(inHour: h) { blockIDs.insert(cov.id) }  // 被覆盖整点归入其多小时块
+            else { hours.insert(h) }
         }
         selected = blockIDs
         selectedHours = hours
@@ -289,6 +301,7 @@ struct TimelineView: View {
             .addingTimeInterval(3600)
         b.start = min(b.start, loStart)
         b.end = max(b.end, hiEnd)
+        coalesceAdjacent()
         exitSelection()
     }
 
@@ -300,6 +313,22 @@ struct TimelineView: View {
             ctx.insert(TimeBlock(start: start, end: start.addingTimeInterval(3600),
                                  title: "", category: cat.rawValue))
         }
+        coalesceAdjacent()
         exitSelection()
+    }
+
+    // 相邻且同类同名的块自动并成一个（如连续填充的多个 1 小时同类块、编辑后与邻块相接）
+    private func coalesceAdjacent() {
+        let sorted = dayBlocks.sorted { $0.start < $1.start }
+        var prev: TimeBlock?
+        for b in sorted {
+            if let p = prev, p.category == b.category, p.title == b.title, b.start <= p.end {
+                p.end = max(p.end, b.end)           // 接上/重叠 → 拉长前块
+                if p.note.isEmpty { p.note = b.note }
+                ctx.delete(b)
+            } else {
+                prev = b
+            }
+        }
     }
 }
