@@ -231,7 +231,7 @@ struct TimelineView: View {
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showShare) {
-                if let img = shareImage { ActivityView(items: [img]) }
+                if let img = shareImage { SharePreviewSheet(image: img) }
             }
         }
     }
@@ -358,10 +358,41 @@ struct TimelineView: View {
         }
     }
 
-    // 截当前屏幕并分享
+    // 把焦点天的日程渲染成图（剪到首块…末块，下方全是空闲不进图；整天无块则不分享）
     private func shareScreenshot() {
-        shareImage = captureWindowImage()
+        let data = shareItems()
+        guard !data.items.isEmpty else { return }
+        let renderer = ImageRenderer(content: DayShareView(title: data.title, items: data.items))
+        renderer.scale = UIScreen.main.scale
+        shareImage = renderer.uiImage
         if shareImage != nil { showShare = true }
+    }
+
+    private func shareItems() -> (title: String, items: [ShareItem]) {
+        let day = focusedDay
+        let title = day.isSameDay(as: .now) ? "今天 · \(day.dayTitle)" : day.dayTitle
+        let raw = visibleHourStarts(of: day).flatMap { hourItems($0) }
+        func isBlock(_ i: HourItem) -> Bool { if case .block = i { return true }; return false }
+        guard let f = raw.firstIndex(where: isBlock), let l = raw.lastIndex(where: isBlock) else {
+            return (title, [])   // 当天没有块（全是空闲）→ 空
+        }
+        var out: [ShareItem] = []
+        for item in raw[f...l] {     // 只取首块到末块，丢掉前后的空闲
+            switch item {
+            case .block(let b):
+                let s = catStyle(for: b.category, custom: customCats)
+                out.append(ShareItem(time: clock(b.start),
+                                     title: b.title.isEmpty ? s.name : b.title,
+                                     sub: "\(clock(b.start))-\(clock(b.end)) · \(formatDuration(b.duration))",
+                                     color: s.color))
+            case .idle(let st, let e):
+                out.append(ShareItem(time: clock(st), title: "空闲",
+                                     sub: formatDuration(e.timeIntervalSince(st)), color: nil))
+            case .empty(let hs):
+                out.append(ShareItem(time: clock(hs), title: "空闲", sub: "1小时", color: nil))
+            }
+        }
+        return (title, out)
     }
 
     // MARK: - 行
@@ -855,22 +886,4 @@ struct TimelineView: View {
         }
     }
 
-    // 截取当前 key window 的整屏图像
-    private func captureWindowImage() -> UIImage? {
-        guard let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap({ $0.windows })
-            .first(where: { $0.isKeyWindow }) else { return nil }
-        let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
-        return renderer.image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: false) }
-    }
-}
-
-// 系统分享面板（UIActivityViewController 包装）
-private struct ActivityView: UIViewControllerRepresentable {
-    let items: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
