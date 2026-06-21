@@ -168,7 +168,7 @@ struct TimelineView: View {
                     }
                 }
                 .onAppear { setupIfNeeded(proxy) }
-                .onChange(of: goTodayTrigger) { _, _ in goToDay(.now) }
+                .onChange(of: goTodayTrigger) { _, _ in scrollToNow(proxy) }
             }
             .navigationTitle(selectionMode ? "已选 \(totalSelected)" : "今日")
             .navigationBarTitleDisplayMode(.inline)
@@ -530,9 +530,23 @@ struct TimelineView: View {
         let t = Date.now.startOfDay
         days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
         focusedDay = t
+        scrollToNow(proxy)
+    }
+
+    // 滚到今天当前钟点。多次重试：切 Tab/首屏时 LazyVStack 还没把远处的今天那行布局好，
+    // 单次 scrollTo 会太早不生效（于是停在窗口顶部 ~30 天前）。立即 + 几次延迟兜底。
+    private func scrollToNow(_ proxy: ScrollViewProxy) {
+        let t = Date.now.startOfDay
+        // 目标在窗口外（极少）→ 以今天为中心重建窗口
+        if t < (days.first ?? t) || t > (days.last ?? t) {
+            days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
+        }
+        focusedDay = t
         let vis = visibleHourStarts(of: t)
-        let target = vis.last(where: { $0 <= nowHourStart }) ?? vis.first
-        if let target { DispatchQueue.main.async { proxy.scrollTo(target, anchor: .top) } }
+        guard let target = vis.last(where: { $0 <= nowHourStart }) ?? vis.first else { return }
+        for delay in [0.0, 0.1, 0.3] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { proxy.scrollTo(target, anchor: .top) }
+        }
     }
 
     // 焦点天 = 已滚过顶部、header 最靠近顶部的那天（按天 header frame，便宜）
