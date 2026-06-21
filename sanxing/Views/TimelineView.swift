@@ -404,7 +404,9 @@ struct TimelineView: View {
                 emptySlot(hs)
             }
         case .block(let b):
-            timeLabeledRow(time: b.start, isNow: isNowIn(b.start, b.end)) {
+            // 普通态：左侧时间是个菜单（合并上/下方空闲、起止改为现在）
+            timeLabeledRow(time: b.start, isNow: isNowIn(b.start, b.end),
+                           menuBlock: selectionMode ? nil : b) {
                 Button { tapBlock(b) } label: { blockCard(b) }.buttonStyle(.plain)
             }
         case .idle(let s, let e):
@@ -412,18 +414,45 @@ struct TimelineView: View {
         }
     }
 
-    private func timeLabeledRow<C: View>(time: Date, isNow: Bool,
+    private func timeText(_ time: Date, isNow: Bool) -> some View {
+        Text(clock(time))
+            .font(.caption).monospacedDigit()
+            .fontWeight(isNow ? .bold : .regular)
+            .underline(isNow, color: .accentColor)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .foregroundStyle(isNow ? Color.accentColor : .secondary)
+    }
+
+    // 块左侧时间点按弹出的菜单
+    @ViewBuilder
+    private func blockTimeMenu(_ b: TimeBlock) -> some View {
+        if hasGapBefore(b) {
+            Button { mergeGapBefore(b) } label: { Label("合并上方空闲", systemImage: "arrow.up.to.line") }
+        }
+        if hasGapAfter(b) {
+            Button { mergeGapAfter(b) } label: { Label("合并下方空闲", systemImage: "arrow.down.to.line") }
+        }
+        if Date.now > b.start {
+            Button { setEndNow(b) } label: { Label("结束改为现在", systemImage: "stop.circle") }
+        }
+        if Date.now < b.end {
+            Button { setStartNow(b) } label: { Label("开始改为现在", systemImage: "arrow.right.to.line") }
+        }
+    }
+
+    private func timeLabeledRow<C: View>(time: Date, isNow: Bool, menuBlock: TimeBlock? = nil,
                                          @ViewBuilder content: () -> C) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Text(clock(time))
-                .font(.caption).monospacedDigit()
-                .fontWeight(isNow ? .bold : .regular)
-                .underline(isNow, color: .accentColor)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .foregroundStyle(isNow ? Color.accentColor : .secondary)
-                .frame(minWidth: 44, alignment: .leading)
-                .padding(.top, 8)
+            Group {
+                if let b = menuBlock {
+                    Menu { blockTimeMenu(b) } label: { timeText(time, isNow: isNow) }
+                } else {
+                    timeText(time, isNow: isNow)
+                }
+            }
+            .frame(minWidth: 44, alignment: .leading)
+            .padding(.top, 8)
             content()
         }
     }
