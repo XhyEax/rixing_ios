@@ -8,7 +8,8 @@ struct ShareItem: Identifiable {
     var dayHeader: String? = nil
     var time: String = ""
     var name: String = ""       // 分类名 / 「空闲」
-    var title: String = ""      // 块自己的标题（可空，受「显示标题」开关控制）
+    var title: String = ""      // 块自己的标题（可空，受「显示详情」开关控制）
+    var note: String = ""       // 块备注（可空，受「显示详情」开关控制）
     var sub: String = ""        // 时间段 · 时长
     var color: Color? = nil
 }
@@ -40,6 +41,9 @@ struct DayShareView: View {
                             HStack(spacing: 6) {
                                 Text(it.name).font(.title3).foregroundStyle(c)
                                 Text("· \(it.sub)").font(.body).foregroundStyle(.secondary)
+                            }
+                            if showTitle && !it.note.isEmpty {
+                                Text(it.note).font(.body).foregroundStyle(.secondary)
                             }
                         }
                         Spacer(minLength: 0)
@@ -86,10 +90,11 @@ struct SharePreviewSheet: View {
                 let sub = it.sub.replacingOccurrences(of: " · ", with: " ")
                 if it.color == nil {
                     lines.append("空闲 \(sub)")
-                } else if showTitle && !it.title.isEmpty {
-                    lines.append("\(it.name) \(it.title) \(sub)")
                 } else {
-                    lines.append("\(it.name) \(sub)")
+                    var detail = it.name
+                    if showTitle && !it.title.isEmpty { detail += " \(it.title)" }
+                    if showTitle && !it.note.isEmpty { detail += "（\(it.note)）" }
+                    lines.append("\(detail) \(sub)")
                 }
             }
         }

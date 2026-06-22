@@ -421,7 +421,7 @@ struct TimelineView: View {
         case .block(let seg):
             let b = seg.block
             let s = catStyle(for: b.category, custom: customCats)
-            return ShareItem(time: clock(seg.start), name: s.name, title: b.title,
+            return ShareItem(time: clock(seg.start), name: s.name, title: b.title, note: b.note,
                              sub: "\(clock(seg.start))-\(clock(seg.end)) · \(formatDuration(seg.end.timeIntervalSince(seg.start)))",
                              color: s.color)
         case .idle(let st, let e):
