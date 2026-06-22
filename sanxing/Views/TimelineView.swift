@@ -50,6 +50,7 @@ struct TimelineView: View {
     @State private var dayCache = DayBlocksCache()
     @State private var shareTitle = ""
     @State private var shareRows: [ShareItem] = []
+    @State private var shareImage: UIImage?
     @State private var shareJSON: String?
     @State private var showShare = false
     @AppStorage("appColorScheme") private var colorSchemeIndex = 0
@@ -235,7 +236,7 @@ struct TimelineView: View {
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showShare) {
-                SharePreviewSheet(title: shareTitle, items: shareRows,
+                SharePreviewSheet(image: shareImage, title: shareTitle, items: shareRows,
                                   scheme: effectiveScheme, jsonText: shareJSON)
             }
         }
@@ -376,7 +377,15 @@ struct TimelineView: View {
             return d
         }
         shareJSON = DataTransfer.encode(BackupData(blocks: dtos)).flatMap { String(data: $0, encoding: .utf8) }
-        showShare = true   // 预览面板里渲染（可切「显示标题」即时重渲染）
+        shareImage = nil
+        showShare = true   // 先弹（转圈），随后渲染默认图（无标题）
+        DispatchQueue.main.async {
+            let r = ImageRenderer(content:
+                DayShareView(title: shareTitle, items: shareRows, showTitle: false)
+                    .environment(\.colorScheme, effectiveScheme))
+            r.scale = 2
+            shareImage = r.uiImage
+        }
     }
 
     // 当前屏幕里可见的天（按 header 在视口中的位置；含被上方块覆盖到顶部的那天）

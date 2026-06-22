@@ -61,8 +61,9 @@ struct DayShareView: View {
     }
 }
 
-// 预览 + 分享面板：左上勾选「显示标题」（默认不显示），即时重渲染
+// 预览 + 分享面板：默认图(无标题)由父级渲染传入；勾选「显示标题」时在本面板重渲染
 struct SharePreviewSheet: View {
+    let image: UIImage?     // 默认（无标题）图
     let title: String
     let items: [ShareItem]
     let scheme: ColorScheme
@@ -70,15 +71,17 @@ struct SharePreviewSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showTitle = false
-    @State private var image: UIImage?
+    @State private var titledImage: UIImage?   // 显示标题时重渲染
     @State private var copied = false
+
+    private var shown: UIImage? { showTitle ? titledImage : image }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let image {
+                if let img = shown {
                     ScrollView {
-                        Image(uiImage: image)
+                        Image(uiImage: img)
                             .resizable().scaledToFit()
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -103,24 +106,23 @@ struct SharePreviewSheet: View {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     }
                     .disabled(jsonText == nil)
-                    if let image {
-                        ShareLink(item: Image(uiImage: image),
-                                  preview: SharePreview("时间轴", image: Image(uiImage: image))) {
+                    if let img = shown {
+                        ShareLink(item: Image(uiImage: img),
+                                  preview: SharePreview("时间轴", image: Image(uiImage: img))) {
                             Image(systemName: "square.and.arrow.up")
                         }
                     }
                 }
             }
-            .onAppear { render() }
-            .onChange(of: showTitle) { _, _ in render() }
+            .onChange(of: showTitle) { _, on in
+                if on && titledImage == nil {   // 首次切到显示标题才渲染
+                    let r = ImageRenderer(content:
+                        DayShareView(title: title, items: items, showTitle: true)
+                            .environment(\.colorScheme, scheme))
+                    r.scale = 2
+                    titledImage = r.uiImage
+                }
+            }
         }
-    }
-
-    private func render() {
-        let r = ImageRenderer(content:
-            DayShareView(title: title, items: items, showTitle: showTitle)
-                .environment(\.colorScheme, scheme))
-        r.scale = 2
-        image = r.uiImage
     }
 }
