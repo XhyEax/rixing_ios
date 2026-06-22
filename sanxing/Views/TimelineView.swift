@@ -632,13 +632,18 @@ struct TimelineView: View {
             }
             RoundedRectangle(cornerRadius: 3).fill(s.color).frame(width: 5)
             VStack(alignment: .leading, spacing: 3) {
-                // 标题留空用空格占位，保持两行高度、又不重复显示分类名
-                Text(b.title.isEmpty ? " " : b.title).font(.subheadline)
-                HStack(spacing: 6) {
-                    Label(s.name, systemImage: s.icon).font(.caption2).foregroundStyle(s.color)
-                    Text("· \(b.start.hm)-\(b.end.hm) · \(formatDuration(b.duration))")
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .lineLimit(1)
+                if b.title.isEmpty {
+                    // 无标题：上行 图标+分类，下行 时间范围·时长
+                    Label(s.name, systemImage: s.icon).font(.subheadline).foregroundStyle(s.color)
+                    Text("\(b.start.hm)-\(b.end.hm) · \(formatDuration(b.duration))")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    Text(b.title).font(.subheadline)
+                    HStack(spacing: 6) {
+                        Label(s.name, systemImage: s.icon).font(.caption2).foregroundStyle(s.color)
+                        Text("· \(b.start.hm)-\(b.end.hm) · \(formatDuration(b.duration))")
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
             }
             Spacer(minLength: 0)
