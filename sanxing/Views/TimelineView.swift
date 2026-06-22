@@ -394,9 +394,9 @@ struct TimelineView: View {
         guard !data.items.isEmpty else { return }
         shareTitle = data.title
         shareRows = data.items
-        // 可复制的 JSON：可见天的块（跨天块去重，整条记录），category 改成分类中文名
+        // 可复制的 JSON：分享范围内的块（跨天块去重，整条记录），category 改成分类中文名
         var seen = Set<PersistentIdentifier>()
-        let dtos = (visibleDays().isEmpty ? [focusedDay] : visibleDays())
+        let dtos = shareRange().days
             .flatMap { dayBlocks(of: $0) }
             .filter { seen.insert($0.id).inserted }
             .map { b -> TimeBlockDTO in
@@ -443,14 +443,26 @@ struct TimelineView: View {
         }
     }
 
-    // 当前屏幕显示的块（跨天则多天都含），每天首块…末块、丢前后空闲
+    // 分享范围：从可视顶部那行的时间（scrolledID）起，覆盖可视的若干天
+    private func shareRange() -> (topHS: Date, days: [Date]) {
+        let topHS = scrolledID ?? cal.startOfDay(for: focusedDay)
+        let startDay = cal.startOfDay(for: topHS)
+        let lastVisible = visibleDays().last ?? startDay.addingDays(1)   // dayFrames 未就绪时至少含次日
+        let endDay = min(max(lastVisible, startDay), startDay.addingDays(6))   // 上限一周
+        var ds: [Date] = []; var d = startDay
+        while d <= endDay { ds.append(d); d = d.addingDays(1) }
+        return (topHS, ds)
+    }
+
+    // 从可视顶部时间往后：第一天从该时间起，后续天整天；每天首块…末块、丢前后空闲、空天跳过
     private func shareItems() -> (title: String, items: [ShareItem]) {
         func isBlock(_ i: HourItem) -> Bool { if case .block = i { return true }; return false }
-        var vds = visibleDays()
-        if vds.isEmpty { vds = [focusedDay] }   // dayFrames 未就绪时兜底分享焦点天
+        let (topHS, ds) = shareRange()
         var out: [ShareItem] = []
-        for day in vds {
-            let raw = visibleHourStarts(of: day).flatMap { hourItems($0) }
+        for day in ds {
+            var hours = visibleHourStarts(of: day)
+            if cal.isDate(day, inSameDayAs: topHS) { hours = hours.filter { $0 >= topHS } }   // 第一天从可视顶部起
+            let raw = hours.flatMap { hourItems($0) }
             guard let f = raw.firstIndex(where: isBlock), let l = raw.lastIndex(where: isBlock) else { continue }
             out.append(ShareItem(dayHeader: day.isSameDay(as: .now) ? "今天 · \(day.dayTitle)" : day.dayTitle))
             for item in raw[f...l] { out.append(shareRow(item)) }
