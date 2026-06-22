@@ -44,7 +44,6 @@ struct DayShareView: View {
                     }
                 }
             }
-            Text("三省小记").font(.caption2).foregroundStyle(.tertiary).padding(.top, 4)
         }
         .padding(18)
         .frame(width: 360, alignment: .leading)
@@ -55,7 +54,9 @@ struct DayShareView: View {
 // 预览 + 分享面板：先看到生成的图，再点「分享」走系统分享
 struct SharePreviewSheet: View {
     let image: UIImage?     // nil = 渲染中
+    var jsonText: String? = nil   // 可复制的 JSON 数据
     @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
 
     var body: some View {
         NavigationStack {
@@ -74,7 +75,16 @@ struct SharePreviewSheet: View {
             .navigationTitle("分享预览")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    Button("取消") { dismiss() }
+                    // 复制 JSON 数据到剪贴板
+                    Button {
+                        if let j = jsonText { UIPasteboard.general.string = j; copied = true }
+                    } label: {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    }
+                    .disabled(jsonText == nil)
+                }
                 if let image {
                     ToolbarItem(placement: .confirmationAction) {
                         ShareLink(item: Image(uiImage: image),

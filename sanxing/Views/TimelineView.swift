@@ -49,6 +49,7 @@ struct TimelineView: View {
     @State private var overlap: OverlapPair?        // 编辑后检测到的重叠，弹窗让用户选择如何处理
     @State private var dayCache = DayBlocksCache()
     @State private var shareImage: UIImage?
+    @State private var shareJSON: String?
     @State private var showShare = false
     @AppStorage("appColorScheme") private var colorSchemeIndex = 0
     @Environment(\.colorScheme) private var systemScheme
@@ -233,7 +234,7 @@ struct TimelineView: View {
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showShare) {
-                SharePreviewSheet(image: shareImage)
+                SharePreviewSheet(image: shareImage, jsonText: shareJSON)
             }
         }
     }
@@ -364,6 +365,10 @@ struct TimelineView: View {
     private func shareScreenshot() {
         let data = shareItems()
         guard !data.items.isEmpty else { return }
+        // 可复制的 JSON：可见天的块 + 自定义分类
+        let blocks = visibleDays().flatMap { dayBlocks(of: $0) }
+        let backup = BackupData(blocks: blocks.map(\.dto), categories: customCats.map(\.dto))
+        shareJSON = DataTransfer.encode(backup).flatMap { String(data: $0, encoding: .utf8) }
         shareImage = nil
         showShare = true     // 先弹预览（转圈），随后渲染出图，避免按下去卡住
         DispatchQueue.main.async {
@@ -628,7 +633,7 @@ struct TimelineView: View {
             }
             RoundedRectangle(cornerRadius: 3).fill(s.color).frame(width: 5)
             VStack(alignment: .leading, spacing: 3) {
-                Text(b.title.isEmpty ? s.name : b.title).font(.subheadline)
+                if !b.title.isEmpty { Text(b.title).font(.subheadline) }   // 标题留空就不显示顶部行
                 HStack(spacing: 6) {
                     Label(s.name, systemImage: s.icon).font(.caption2).foregroundStyle(s.color)
                     Text("· \(b.start.hm)-\(b.end.hm) · \(formatDuration(b.duration))")
