@@ -51,14 +51,14 @@ enum BlockCategory: String, CaseIterable, Identifiable {
         case .work: return .blue
         case .study: return .purple
         case .rest: return .indigo
-        case .exercise: return .orange
+        case .exercise: return Color(red: 0.20, green: 0.55, blue: 0.50)
         case .life: return .pink
         case .fun: return .green
-        case .phone: return .indigo
+        case .phone: return .orange
         case .reading: return .cyan
         case .code: return .mint
         case .writing: return .yellow
-        case .other: return .brown   // 原灰色对比度低、看不清，改棕色
+        case .other: return .blue
         }
     }
     var icon: String {
@@ -73,7 +73,7 @@ enum BlockCategory: String, CaseIterable, Identifiable {
         case .reading: return "books.vertical.fill"
         case .code: return "chevron.left.forwardslash.chevron.right"
         case .writing: return "square.and.pencil"
-        case .other: return "circle.fill"
+        case .other: return "brain.head.profile"
         }
     }
 }
