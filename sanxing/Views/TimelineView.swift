@@ -537,22 +537,24 @@ struct TimelineView: View {
         }
     }
 
-    // 空闲段左侧时间菜单：并入上/下方块
+    // 空闲段左侧时间菜单：合并到上/下方块（跨过连续空闲，并入最近的真实块）
     @ViewBuilder
     private func idleTimeMenu(_ s: Date, _ e: Date) -> some View {
-        if let p = blockEndingAt(s) {
-            Button { p.end = max(p.end, e); afterEdit() } label: { Label("并入上方", systemImage: "arrow.up.to.line") }
+        if let p = blockAbove(s) {
+            Button { p.end = max(p.end, e); afterEdit() } label: { Label("合并到上方", systemImage: "arrow.up.to.line") }
         }
-        if let n = blockStartingAt(e) {
-            Button { n.start = min(n.start, s); afterEdit() } label: { Label("并入下方", systemImage: "arrow.down.to.line") }
+        if let n = blockBelow(e) {
+            Button { n.start = min(n.start, s); afterEdit() } label: { Label("合并到下方", systemImage: "arrow.down.to.line") }
         }
         Button { newBlock = NewBlock(start: s, end: e) } label: { Label("新建块", systemImage: "plus") }
     }
-    private func blockEndingAt(_ t: Date) -> TimeBlock? {
-        allBlocks.first { $0.end == t && $0.start.isSameDay(as: t) }
+    // 此空闲上方最近的块（结束 ≤ s，取最晚结束）；中间只会是连续空闲，合并即吃掉它们
+    private func blockAbove(_ s: Date) -> TimeBlock? {
+        allBlocks.filter { $0.start.isSameDay(as: s) && $0.end <= s }.max { $0.end < $1.end }
     }
-    private func blockStartingAt(_ t: Date) -> TimeBlock? {
-        allBlocks.first { $0.start == t && $0.start.isSameDay(as: t) }
+    // 此空闲下方最近的块（开始 ≥ e，取最早开始）
+    private func blockBelow(_ e: Date) -> TimeBlock? {
+        allBlocks.filter { $0.start.isSameDay(as: e) && $0.start >= e }.min { $0.start < $1.start }
     }
 
     private func timeLabeledRow<L: View, C: View>(@ViewBuilder leading: () -> L,
