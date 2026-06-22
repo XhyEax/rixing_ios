@@ -75,21 +75,20 @@ struct SharePreviewSheet: View {
             .navigationTitle("分享预览")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItemGroup(placement: .topBarLeading) {
-                    Button("取消") { dismiss() }
-                    // 复制 JSON 数据到剪贴板
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    // 复制 JSON（在分享左侧）
                     Button {
                         if let j = jsonText { UIPasteboard.general.string = j; copied = true }
                     } label: {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     }
                     .disabled(jsonText == nil)
-                }
-                if let image {
-                    ToolbarItem(placement: .confirmationAction) {
+                    // 分享（图标）
+                    if let image {
                         ShareLink(item: Image(uiImage: image),
                                   preview: SharePreview("时间轴", image: Image(uiImage: image))) {
-                            Text("分享")
+                            Image(systemName: "square.and.arrow.up")
                         }
                     }
                 }
