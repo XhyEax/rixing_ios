@@ -282,6 +282,7 @@ struct TimelineView: View {
         for k in 1..<sorted.count {
             let a = sorted[k - 1], b = sorted[k]
             if a.end > b.start {   // 重叠（跨天也算）
+                if sameKind(a, b) { continue }   // 同类同标题同备注：会被 coalesce 合并，不弹窗
                 overlap = OverlapPair(earlier: a, later: b)
                 return
             }
@@ -878,13 +879,17 @@ struct TimelineView: View {
     }
 
     // 相邻且同类同名的块自动并成一条（跨天也合并——保留单条记录，视觉再裁两段）
+    // 同类 + 同标题 + 同备注，视为同一件事：相邻/重叠就自动合并（不弹「时间重叠」）
+    private func sameKind(_ a: TimeBlock, _ b: TimeBlock) -> Bool {
+        a.category == b.category && a.title == b.title && a.note == b.note
+    }
+
     private func coalesceAdjacent() {
         let sorted = allBlocks.sorted { $0.start < $1.start }
         var prev: TimeBlock?
         for b in sorted {
-            if let p = prev, p.category == b.category, p.title == b.title, b.start <= p.end {
+            if let p = prev, sameKind(p, b), b.start <= p.end {
                 p.end = max(p.end, b.end)
-                if p.note.isEmpty { p.note = b.note }
                 ctx.delete(b)
             } else {
                 prev = b
