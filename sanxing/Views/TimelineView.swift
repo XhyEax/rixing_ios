@@ -24,8 +24,7 @@ private struct DayFrameKey: PreferenceKey {
 private final class DayBlocksCache { var byDay: [Date: [TimeBlock]] = [:] }
 
 struct TimelineView: View {
-    var goTodayTrigger: Int = 0   // 点「时间轴」Tab 时 +1
-    var goTodayPhase: Int = 0     // 0=今天0点 1=当前第一个空闲
+    var goTodayTrigger: Int = 0   // 点「时间轴」Tab 时 +1 → 跳当前第一个空闲
 
     @Environment(\.modelContext) private var ctx
     @Query(sort: \TimeBlock.start, order: .forward) private var allBlocks: [TimeBlock]
@@ -180,7 +179,7 @@ struct TimelineView: View {
                     }
                 }
                 .onAppear { setupIfNeeded(proxy) }
-                .onChange(of: goTodayTrigger) { _, _ in scrollToToday(proxy, idle: goTodayPhase == 1) }
+                .onChange(of: goTodayTrigger) { _, _ in scrollToToday(proxy) }
             }
             .navigationTitle(selectionMode ? "已选 \(totalSelected)" : "今日")
             .navigationBarTitleDisplayMode(.inline)
@@ -673,20 +672,19 @@ struct TimelineView: View {
         let t = Date.now.startOfDay
         days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
         focusedDay = t
-        scrollToToday(proxy, idle: false)   // 首屏定位今天 0 点
+        scrollToToday(proxy)   // 首屏定位当前第一个空闲
     }
 
-    // 点「时间轴」Tab：idle=false 滚到今天 0 点；idle=true 滚到当前第一个空闲。
+    // 点「时间轴」Tab / 首屏：滚到今天「当前第一个空闲」行。
     // 多次重试：切 Tab/首屏时 LazyVStack 还没把今天那行布局好，单次 scrollTo 会太早不生效。
-    private func scrollToToday(_ proxy: ScrollViewProxy, idle: Bool) {
+    private func scrollToToday(_ proxy: ScrollViewProxy) {
         let t = Date.now.startOfDay
         if t < (days.first ?? t) || t > (days.last ?? t) {   // 目标在窗口外 → 以今天为中心重建
             days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
         }
         focusedDay = t
         let vis = visibleHourStarts(of: t)
-        let target = (idle ? firstFreeHourStart() : vis.first) ?? vis.first
-        guard let target else { return }
+        guard let target = firstFreeHourStart() ?? vis.first else { return }
         for delay in [0.0, 0.1, 0.3] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { proxy.scrollTo(target, anchor: .top) }
         }
