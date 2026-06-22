@@ -535,10 +535,10 @@ struct TimelineView: View {
             Button { mergeGapAfter(b) } label: { Label("合并下方空闲", systemImage: "arrow.down.to.line") }
         }
         if Date.now > b.start {
-            Button { setEndNow(b) } label: { Label("结束改为现在", systemImage: "stop.circle") }
+            Button { setEndNow(b) } label: { Label("现在结束", systemImage: "stop.circle") }
         }
         if Date.now < b.end {
-            Button { setStartNow(b) } label: { Label("开始改为现在", systemImage: "arrow.right.to.line") }
+            Button { setStartNow(b) } label: { Label("现在开始", systemImage: "arrow.right.to.line") }
         }
     }
 
