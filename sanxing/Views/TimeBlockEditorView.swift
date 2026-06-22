@@ -104,16 +104,18 @@ struct TimeBlockEditorView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     Button("取消") { dismiss() }
-                    // 终止：结束时间设为当前时刻并直接保存关闭
-                    Button {
-                        guard Date.now > start else { return }
-                        end = Date.now
-                        save()
-                    } label: {
-                        Image(systemName: "stop.circle")
+                    // 终止：只对已有块（编辑态）显示；从空闲新建块时不显示
+                    if existing != nil {
+                        Button {
+                            guard Date.now > start else { return }
+                            end = Date.now
+                            save()
+                        } label: {
+                            Image(systemName: "stop.circle")
+                        }
+                        .tint(.red)
+                        .disabled(Date.now <= start)
                     }
-                    .tint(.red)
-                    .disabled(Date.now <= start)
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if existing != nil {
