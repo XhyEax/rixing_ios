@@ -470,7 +470,12 @@ struct TimelineView: View {
     private func itemRow(_ item: HourItem) -> some View {
         switch item {
         case .empty(let hs):
-            timeLabeledRow(leading: { plainLeading(hs, isNow: isNowIn(hs, hs.addingTimeInterval(3600))) }) {
+            // 空整点也是空闲：左侧时间同样给「合并到上/下方」菜单
+            timeLabeledRow(leading: {
+                leadingTimeMenu(hs, isNow: isNowIn(hs, hs.addingTimeInterval(3600))) {
+                    idleTimeMenu(hs, hs.addingTimeInterval(3600))
+                }
+            }) {
                 emptySlot(hs)
             }
         case .block(let b):
