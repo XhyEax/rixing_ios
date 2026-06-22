@@ -43,7 +43,7 @@ enum BlockCategory: String, CaseIterable, Identifiable {
         case .reading: return "阅读"
         case .code: return "编程"
         case .writing: return "写作"
-        case .think: return "think"
+        case .think: return "思考"
         }
     }
     var color: Color {
@@ -73,7 +73,7 @@ enum BlockCategory: String, CaseIterable, Identifiable {
         case .reading: return "books.vertical.fill"
         case .code: return "chevron.left.forwardslash.chevron.right"
         case .writing: return "square.and.pencil"
-        case .think: return "brain"
+        case .think: return "brain.head.profile"
         }
     }
 }
