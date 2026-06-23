@@ -39,6 +39,7 @@ struct TimelineView: View {
     @State private var selectedHourStarts: Set<Date> = []         // 选中的空闲整点（按 hour-start）
     @State private var selectedIdle: Set<IdleRange> = []          // 选中的小空闲段（块之间任意长度）
     @State private var showFillDialog = false
+    @State private var showMergeTargetDialog = false   // 多个有名块合并：选合并成哪个
     @State private var showDatePicker = false
     @State private var datePickerDay = Date.now
 
@@ -159,6 +160,11 @@ struct TimelineView: View {
         guard selected.count == 1, let id = selected.first else { return nil }
         return allBlocks.first { $0.id == id }
     }
+    // 选中的真实块（按开始时间排序），≥2 个时可合并成其中一个
+    private var selectedBlocks: [TimeBlock] {
+        allBlocks.filter { selected.contains($0.id) }.sorted { $0.start < $1.start }
+    }
+    private var canMergeBlocks: Bool { selected.count >= 2 }
 
     private func dayHeaderID(_ d: Date) -> String {
         "hdr-\(Int(d.startOfDay.timeIntervalSinceReferenceDate))"
@@ -223,6 +229,14 @@ struct TimelineView: View {
                     }
                 }
                 .presentationDetents([.medium, .large])
+            }
+            .confirmationDialog("合并成哪个？", isPresented: $showMergeTargetDialog, titleVisibility: .visible) {
+                ForEach(selectedBlocks, id: \.id) { b in
+                    Button(blockName(b)) { mergeBlocks(into: b) }
+                }
+                Button("不合并", role: .cancel) {}
+            } message: {
+                Text("将选中的块合并成一个，保留所选块的标题/分类/备注，范围覆盖全部。")
             }
             .sheet(item: $newBlock, onDismiss: afterEdit) {
                 TimeBlockEditorView(start: $0.start, end: $0.end)
@@ -380,6 +394,12 @@ struct TimelineView: View {
                     if hasGapAfter(b) {    // 合并后面空闲
                         Spacer()
                         Button { mergeGapAfter(b); exitSelection() } label: { Image(systemName: "arrow.down.to.line") }
+                    }
+                }
+                if canMergeBlocks {   // 选中多个块 → 合并成其中一个
+                    Spacer()
+                    Button { showMergeTargetDialog = true } label: {
+                        Label("合并", systemImage: "arrow.triangle.merge")
                     }
                 }
                 Spacer()
@@ -874,6 +894,18 @@ struct TimelineView: View {
         for r in selectedIdle { lo = min(lo, r.start); hi = max(hi, r.end) }
         b.start = lo
         b.end = hi
+        normalize()
+        exitSelection()
+    }
+
+    // 把所有选中块合并成 target：target 拉长覆盖全部选中块（及选中空闲）的范围，其余块删除
+    private func mergeBlocks(into target: TimeBlock) {
+        var lo = target.start, hi = target.end
+        for b in selectedBlocks { lo = min(lo, b.start); hi = max(hi, b.end) }
+        for hs in selectedHourStarts { lo = min(lo, hs); hi = max(hi, hs.addingTimeInterval(3600)) }
+        for r in selectedIdle { lo = min(lo, r.start); hi = max(hi, r.end) }
+        target.start = lo; target.end = hi
+        for b in selectedBlocks where b.id != target.id { ctx.delete(b) }
         normalize()
         exitSelection()
     }
