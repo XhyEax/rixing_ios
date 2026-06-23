@@ -24,7 +24,6 @@ private struct DayFrameKey: PreferenceKey {
 private final class DayBlocksCache { var byDay: [Date: [TimeBlock]] = [:] }
 
 struct TimelineView: View {
-    var goTodayTrigger: Int = 0   // 点「时间轴」Tab 时 +1 → 跳当前第一个空闲
 
     @Environment(\.modelContext) private var ctx
     @Query(sort: \TimeBlock.start, order: .forward) private var allBlocks: [TimeBlock]
@@ -201,7 +200,6 @@ struct TimelineView: View {
             .onPreferenceChange(DayFrameKey.self) { dayFrames = $0; updateFocusedDay($0) }
             .highPriorityGesture(selectDragGesture)
             .onAppear { setupIfNeeded() }
-            .onChange(of: goTodayTrigger) { _, _ in scrollToToday() }
             .navigationTitle(selectionMode ? "已选 \(totalSelected)" : "今日")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -728,17 +726,6 @@ struct TimelineView: View {
         days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
         focusedDay = t
         scrolledID = firstFreeHourStart() ?? visibleHourStarts(of: t).first   // 首屏直接定位（scrollPosition）
-    }
-
-    // 点「时间轴」Tab / 首屏：定位今天「当前第一个空闲」行。用 scrollPosition 直接落位，不经过窗口顶部。
-    private func scrollToToday() {
-        let t = Date.now.startOfDay
-        if t < (days.first ?? t) || t > (days.last ?? t) {   // 目标在窗口外 → 以今天为中心重建
-            days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
-        }
-        focusedDay = t
-        let target = firstFreeHourStart() ?? visibleHourStarts(of: t).first
-        DispatchQueue.main.async { scrolledID = target }   // 让窗口/行先就绪再定位
     }
 
     // 今天从当前钟点起、第一个含空闲（空整点或小空闲段）的行

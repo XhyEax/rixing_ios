@@ -8,17 +8,10 @@ import SwiftData
 
 struct MainTabView: View {
     @State private var selection = 0
-    @State private var todayTrigger = 0   // 点「时间轴」Tab → 跳到当前第一个空闲
 
     var body: some View {
-        TabView(selection: Binding(
-            get: { selection },
-            set: { newValue in
-                if newValue == 0 { todayTrigger += 1 }
-                selection = newValue
-            }
-        )) {
-            TimelineView(goTodayTrigger: todayTrigger)
+        TabView(selection: $selection) {
+            TimelineView()
                 .tag(0)
                 .tabItem { Label("时间轴", systemImage: "calendar.day.timeline.left") }
 
