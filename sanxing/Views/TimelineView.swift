@@ -243,6 +243,9 @@ struct TimelineView: View {
                             .datePickerStyle(.graphical)
                             .environment(\.locale, Locale(identifier: "zh_CN"))
                             .padding()
+                            .onChange(of: datePickerDay) { _, d in   // 选中即跳转
+                                showDatePicker = false; goToDay(d)
+                            }
                         Spacer()
                     }
                     .navigationTitle("选择日期")
@@ -250,9 +253,6 @@ struct TimelineView: View {
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button("今天") { datePickerDay = .now }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("完成") { showDatePicker = false; goToDay(datePickerDay) }
                         }
                     }
                 }
@@ -372,7 +372,6 @@ struct TimelineView: View {
             }
         } else {
             ToolbarItemGroup(placement: .navigationBarLeading) {
-                dayNav
                 Button { ctx.undoManager?.undo() } label: {
                     Image(systemName: "arrow.uturn.backward")
                 }
@@ -382,6 +381,7 @@ struct TimelineView: View {
                 }
                 .disabled(!(ctx.undoManager?.canRedo ?? false))
             }
+            ToolbarItem(placement: .principal) { dayNav }
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button { shareScreenshot() } label: { Image(systemName: "square.and.arrow.up") }
                 Button("选择") { selectionMode = true }
