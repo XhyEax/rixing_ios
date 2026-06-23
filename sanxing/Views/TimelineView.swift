@@ -231,7 +231,7 @@ struct TimelineView: View {
             ), titleVisibility: .visible, presenting: overlap) { p in
                 Button("把「\(blockName(p.later))」开始改到 \(clock(p.earlier.end))") { resolveMovingLater(p) }
                 Button("把「\(blockName(p.earlier))」结束改到 \(clock(p.later.start))") { resolveMovingEarlier(p) }
-                Button("保持重叠", role: .cancel) { overlap = nil }
+                Button("不修改", role: .cancel) { overlap = nil }
             } message: { p in
                 Text("「\(blockName(p.earlier))」(到 \(clock(p.earlier.end))) 与「\(blockName(p.later))」(\(clock(p.later.start)) 起) 重叠，是否同步调整？")
             }
@@ -374,6 +374,7 @@ struct TimelineView: View {
             }
         } else {
             ToolbarItemGroup(placement: .navigationBarLeading) {
+                dayNav
                 Button { datePickerDay = focusedDay; showDatePicker = true } label: {
                     Image(systemName: "calendar")
                 }
@@ -386,7 +387,6 @@ struct TimelineView: View {
                 }
                 .disabled(!(ctx.undoManager?.canRedo ?? false))
             }
-            ToolbarItem(placement: .principal) { dayNav }
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button { shareScreenshot() } label: { Image(systemName: "square.and.arrow.up") }
                 Button("选择") { selectionMode = true }
@@ -579,11 +579,11 @@ struct TimelineView: View {
         if hasGapAfter(b) {
             Button { mergeGapAfter(b) } label: { Label("合并下方空闲", systemImage: "arrow.down.to.line") }
         }
-        if Date.now > b.start {
-            Button { setEndNow(b) } label: { Label("现在结束", systemImage: "arrow.right.to.line") }
-        }
         if Date.now < b.end {
             Button { setStartNow(b) } label: { Label("现在开始", systemImage: "arrow.left.to.line") }
+        }
+        if Date.now > b.start {
+            Button { setEndNow(b) } label: { Label("现在结束", systemImage: "arrow.right.to.line") }
         }
     }
 

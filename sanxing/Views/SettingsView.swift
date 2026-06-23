@@ -19,6 +19,7 @@ struct SettingsView: View {
     @State private var addedBeforeConflict = 0
     @State private var showConflict = false
     @State private var alertMsg: String?
+    @State private var exportRange = 7   // 导出范围：3/7/30 天，0=全部
 
     private var appVersion: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -67,14 +68,17 @@ struct SettingsView: View {
 
     @ViewBuilder private var dataSection: some View {
         Section {
-            Menu {
-                rangeButtons { exportToFile(days: $0) }
-            } label: {
+            Picker("导出范围", selection: $exportRange) {
+                Text("3 天").tag(3)
+                Text("7 天").tag(7)
+                Text("30 天").tag(30)
+                Text("全部").tag(0)
+            }
+            .pickerStyle(.segmented)
+            Button { exportToFile(days: exportDays) } label: {
                 Label("导出到文件", systemImage: "square.and.arrow.up")
             }
-            Menu {
-                rangeButtons { copyToClipboard(days: $0) }
-            } label: {
+            Button { copyToClipboard(days: exportDays) } label: {
                 Label("复制到剪贴板", systemImage: "doc.on.doc")
             }
             Button { showImporter = true } label: {
@@ -86,9 +90,12 @@ struct SettingsView: View {
         } header: {
             Text("数据")
         } footer: {
-            Text("导出为 JSON（时间块 / 日记 / 自定义分类）。导入时若条目已存在，可选择覆盖或跳过。")
+            Text("按所选范围导出为 JSON（时间块 / 日记 / 自定义分类）。导入时若条目已存在，可选择覆盖或跳过。")
         }
     }
+
+    // 选中范围 → backup 用的天数（0 = 全部 → nil）
+    private var exportDays: Int? { exportRange == 0 ? nil : exportRange }
 
     @ViewBuilder private var aboutSection: some View {
         Section {
@@ -108,14 +115,6 @@ struct SettingsView: View {
     }
 
     // MARK: - 导出
-
-    // 范围选项：3 / 7 / 30 天 / 全部（nil）
-    @ViewBuilder private func rangeButtons(_ action: @escaping (Int?) -> Void) -> some View {
-        Button("最近 3 天") { action(3) }
-        Button("最近 7 天") { action(7) }
-        Button("最近 30 天") { action(30) }
-        Button("全部") { action(nil) }
-    }
 
     // days=nil 全部；否则含今天在内的最近 days 天
     private func backup(days: Int?) -> BackupData {
