@@ -7,6 +7,7 @@ struct ClockDialPicker: View {
     var color: Color
     var startIcon: String = "bed.double.fill"
     var endIcon: String = "flag.fill"
+    var readOnly: Bool = false   // 只读：仅展示弧段/把手，不响应拖拽
 
     private let ringWidth: CGFloat = 30
     private let snapMinutes = 5
@@ -63,9 +64,8 @@ struct ClockDialPicker: View {
                 knob(startIcon).position(point(hours(of: start), center: c, radius: r))
                 knob(endIcon).position(point(hours(of: start) + durationHours, center: c, radius: r))
             }
-            // 只把「圆环带」作为命中区：点中心/外侧不拦截 → 交给外层 ScrollView 滚动，避免误触
-            .contentShape(RingShape(radius: r, width: touchBand))
-            .highPriorityGesture(drag(center: c, radius: r))
+            .modifier(DialDrag(enabled: !readOnly, shape: RingShape(radius: r, width: touchBand),
+                               gesture: drag(center: c, radius: r)))
         }
         .frame(height: 240)
     }
@@ -149,6 +149,20 @@ struct ClockDialPicker: View {
         while cand <= start { cand = cand.addingTimeInterval(86400) }
         if cand.timeIntervalSince(start) > 86400 { cand = cand.addingTimeInterval(-86400) }
         end = cand
+    }
+}
+
+// 只读时不挂手势/命中带；可交互时只把「圆环带」作为命中区（点中心/外侧交给外层滚动）
+private struct DialDrag<G: Gesture>: ViewModifier {
+    let enabled: Bool
+    let shape: RingShape
+    let gesture: G
+    @ViewBuilder func body(content: Content) -> some View {
+        if enabled {
+            content.contentShape(shape).highPriorityGesture(gesture)
+        } else {
+            content
+        }
     }
 }
 

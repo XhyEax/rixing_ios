@@ -633,7 +633,18 @@ struct TimelineView: View {
         let topFree = blockAbove(s)?.end ?? s.startOfDay   // 上方连续空闲的顶（到最近的块或当天 0 点）
         if topFree < s {   // 上方还有空闲 → 新建块一并覆盖该空闲
             Button { newBlock = NewBlock(start: topFree, end: e) } label: {
-                Label("新建并合并上方空闲块", systemImage: "plus.square.on.square")
+                Label("合并&新建块", systemImage: "plus.square.on.square")
+            }
+        }
+        let now = Date.now
+        if now > s && now < e {   // 当前时刻落在此空闲内 → 可建「到现在为止」的结束块
+            Button { newBlock = NewBlock(start: s, end: now) } label: {
+                Label("新建结束块", systemImage: "stop.circle")
+            }
+            if topFree < s {
+                Button { newBlock = NewBlock(start: topFree, end: now) } label: {
+                    Label("合并&新建结束块", systemImage: "stop.circle")
+                }
             }
         }
     }

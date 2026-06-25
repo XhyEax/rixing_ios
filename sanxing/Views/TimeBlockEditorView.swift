@@ -73,6 +73,12 @@ struct TimeBlockEditorView: View {
                 Section("备注") {
                     TextField("备注", text: $note, axis: .vertical).lineLimit(2...6)
                 }
+                Section {
+                    Button { save() } label: {
+                        Text("保存").frame(maxWidth: .infinity).fontWeight(.semibold)
+                    }
+                    .disabled(end <= start)
+                }
                 Section("分类") {
                     CategoryGrid(selectedKey: categoryKey) { categoryKey = $0 }
                 }
@@ -92,7 +98,8 @@ struct TimeBlockEditorView: View {
                     // 表盘：拖把手改起止（仿健康 App）
                     ClockDialPicker(start: $start, end: $end,
                                     color: catStyle(for: categoryKey, custom: customCats).color,
-                                    startIcon: catStyle(for: categoryKey, custom: customCats).icon)
+                                    startIcon: catStyle(for: categoryKey, custom: customCats).icon,
+                                    readOnly: true)   // 只读：仅展示，改时间用上方 DatePicker
                         .padding(.top, 4)
                 }
                 // 选时长 → 自动设结束（拖把手/改起止则各自独立调整，互不牵连）
@@ -121,7 +128,6 @@ struct TimeBlockEditorView: View {
                         Button("删除", role: .destructive) { delete() }
                             .tint(.red)
                     }
-                    Button("保存") { save() }.fontWeight(.semibold).disabled(end <= start)
                 }
             }
             .overlay(alignment: .bottom) {
