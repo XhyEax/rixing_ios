@@ -20,8 +20,23 @@ private struct DayFrameKey: PreferenceKey {
 }
 
 // 按天分组的块缓存：每次 body 求值时整体重建一次，渲染期各行只做字典查找，
-// 不再每行 filter 整个 allBlocks（引用类型，重建不触发额外刷新）
-private final class DayBlocksCache { var byDay: [Date: [TimeBlock]] = [:] }
+// 不再每行 filter 整个 allBlocks（引用类型，重建不触发额外刷新）。
+// segsByDay / visibleByDay 是同一次 body 求值内的备忘：把每天的片段、可见整点各算一次复用，
+// 避免每行 hourItems / visibleHourStarts 反复 map+sort（滚动时 body 每帧重算 → 卡顿根因）。
+// 块在某一天里的「片段」：跨天块裁到当天 [start,end]；底层仍是同一条 block 记录
+private struct Seg: Identifiable {
+    let block: TimeBlock
+    let start: Date
+    let end: Date
+    var id: String { "\(ObjectIdentifier(block).hashValue)@\(start.timeIntervalSinceReferenceDate)" }
+}
+
+private final class DayBlocksCache {
+    var byDay: [Date: [TimeBlock]] = [:]
+    var segsByDay: [Date: [Seg]] = [:]
+    var visibleByDay: [Date: [Date]] = [:]
+    var signature: Int?           // 块集合的指纹；未变则跨帧保留上面三份备忘
+}
 
 struct TimelineView: View {
     var goTodayTrigger: Int = 0   // 点「时间轴」Tab 时 +1 → 跳当前第一个空闲
@@ -65,17 +80,23 @@ struct TimelineView: View {
     private struct NewBlock: Identifiable { let start: Date; let end: Date; var id: Date { start } }
     private struct OverlapPair: Identifiable { let id = UUID(); let earlier: TimeBlock; let later: TimeBlock }
     private struct IdleRange: Hashable { let start: Date; let end: Date }
-    // 块在某一天里的「片段」：跨天块裁到当天 [start,end]；底层仍是同一条 block 记录
-    private struct Seg: Identifiable {
-        let block: TimeBlock
-        let start: Date
-        let end: Date
-        var id: String { "\(ObjectIdentifier(block).hashValue)@\(start.timeIntervalSinceReferenceDate)" }
-    }
 
     // MARK: - 取数（按天 / 按 hour-start）
 
+    // 块集合指纹：内容不变（纯滚动）时跳过重建、保留备忘，避免每帧 O(块) 重算
+    private func blocksSignature() -> Int {
+        var h = Hasher()
+        h.combine(allBlocks.count)
+        for b in allBlocks {
+            h.combine(b.start); h.combine(b.end); h.combine(b.category); h.combine(b.title)
+        }
+        return h.finalize()
+    }
+
     private func rebuildDayCache() {
+        let sig = blocksSignature()
+        guard sig != dayCache.signature else { return }   // 数据没变：保留 byDay / segs / visible 备忘，跨帧复用
+        dayCache.signature = sig
         var byDay: [Date: [TimeBlock]] = [:]
         for b in allBlocks where b.end > b.start {
             var d = cal.startOfDay(for: b.start)
@@ -85,17 +106,23 @@ struct TimelineView: View {
             }
         }
         dayCache.byDay = byDay
+        dayCache.segsByDay.removeAll(keepingCapacity: true)
+        dayCache.visibleByDay.removeAll(keepingCapacity: true)
     }
     // 当天涉及的块（缓存：每个块落进它覆盖的每一天，跨天块出现在多天）
     private func dayBlocks(of day: Date) -> [TimeBlock] {
         dayCache.byDay[cal.startOfDay(for: day)] ?? []
     }
-    // 当天的片段（把跨天块裁到当天，不改记录），按起点排序
+    // 当天的片段（把跨天块裁到当天，不改记录），按起点排序。按天备忘，单次 body 内只算一次
     private func segs(of day: Date) -> [Seg] {
-        let d0 = cal.startOfDay(for: day), d1 = d0.addingDays(1)
-        return dayBlocks(of: day)
+        let d0 = cal.startOfDay(for: day)
+        if let cached = dayCache.segsByDay[d0] { return cached }
+        let d1 = d0.addingDays(1)
+        let result = dayBlocks(of: day)
             .map { Seg(block: $0, start: max($0.start, d0), end: min($0.end, d1)) }
             .sorted { $0.start < $1.start }
+        dayCache.segsByDay[d0] = result
+        return result
     }
     // 在该整点起始的片段
     private func segsStarting(at hs: Date) -> [Seg] {
@@ -114,13 +141,17 @@ struct TimelineView: View {
         return (0..<24).compactMap { Calendar.current.date(byAdding: .hour, value: $0, to: d0) }
     }
     private func visibleHourStarts(of day: Date) -> [Date] {
-        hourStarts(of: day).filter { hs in
+        let d0 = cal.startOfDay(for: day)
+        if let cached = dayCache.visibleByDay[d0] { return cached }
+        let result = hourStarts(of: day).filter { hs in
             if !segsStarting(at: hs).isEmpty { return true }   // 有片段起始于此 → 显示（含与前块重叠的情形）
             let he = hs.addingTimeInterval(3600)
             // 整段被多小时块覆盖且无块 → 隐藏；若覆盖块在本整点内结束（留有空闲）→ 仍显示，渲染那段空闲
             if let cov = coveringSeg(at: hs), cov.end >= he { return false }
             return true
         }
+        dayCache.visibleByDay[d0] = result
+        return result
     }
     private func emptyHourStarts(of day: Date) -> [Date] {
         visibleHourStarts(of: day).filter { segsStarting(at: $0).isEmpty }
