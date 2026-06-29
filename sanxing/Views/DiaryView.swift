@@ -1,4 +1,4 @@
-// Views/DiaryView.swift — 日记：按天分组，倒序展示
+// Views/DiaryView.swift — 随手记：按天分组，倒序展示；顶部日期导航（仅可跳到有记录的日期）
 import SwiftUI
 import SwiftData
 import UIKit
@@ -9,49 +9,108 @@ struct DiaryView: View {
 
     @State private var editing: DiaryEntry?
     @State private var showNew = false
+    @State private var focusedDay = Date.now.startOfDay   // 顶部导航当前天
+    @State private var showDatePicker = false
+    @State private var datePickerDay = Date.now
 
     // 按自然日分组，日期倒序
     private var groups: [(day: Date, items: [DiaryEntry])] {
         let dict = Dictionary(grouping: entries) { $0.createdAt.startOfDay }
         return dict.keys.sorted(by: >).map { (day: $0, items: dict[$0] ?? []) }
     }
+    // 有记录的日期（升序）
+    private var entryDays: [Date] { groups.map(\.day).sorted() }
+    private var prevEntryDay: Date? { entryDays.last { $0 < focusedDay } }   // 更早一天
+    private var nextEntryDay: Date? { entryDays.first { $0 > focusedDay } }  // 更晚一天
 
     var body: some View {
         NavigationStack {
-            Group {
-                if entries.isEmpty {
-                    ContentUnavailableView("还没有日记",
-                        systemImage: "book.closed",
-                        description: Text("点右上角 ＋ 写下今天"))
-                } else {
-                    List {
-                        ForEach(groups, id: \.day) { group in
-                            Section(group.day.dayTitle) {
-                                ForEach(group.items) { entry in
-                                    Button { editing = entry } label: { row(entry) }
-                                        .buttonStyle(.plain)
-                                        .contextMenu {
-                                            Button {
-                                                UIPasteboard.general.string = entry.text
-                                            } label: { Label("复制", systemImage: "doc.on.doc") }
-                                            .disabled(entry.text.isEmpty)
-                                        }
+            ScrollViewReader { proxy in
+                Group {
+                    if entries.isEmpty {
+                        ContentUnavailableView("还没有日记",
+                            systemImage: "book.closed",
+                            description: Text("点右上角 ＋ 写下今天"))
+                    } else {
+                        List {
+                            ForEach(groups, id: \.day) { group in
+                                Section(group.day.dayTitle) {
+                                    ForEach(group.items) { entry in
+                                        Button { editing = entry } label: { row(entry) }
+                                            .buttonStyle(.plain)
+                                            .contextMenu {
+                                                Button {
+                                                    UIPasteboard.general.string = entry.text
+                                                } label: { Label("复制", systemImage: "doc.on.doc") }
+                                                .disabled(entry.text.isEmpty)
+                                            }
+                                    }
+                                    .onDelete { deleteIn(group.items, $0) }
                                 }
-                                .onDelete { deleteIn(group.items, $0) }
+                                .id(group.day)
                             }
                         }
                     }
                 }
-            }
-            .navigationTitle("随手记")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showNew = true } label: { Image(systemName: "plus") }
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if !entries.isEmpty {
+                        ToolbarItem(placement: .principal) { dayNav(proxy) }
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button { showNew = true } label: { Image(systemName: "plus") }
+                    }
                 }
+                .sheet(isPresented: $showDatePicker) {
+                    NavigationStack {
+                        VStack {
+                            DatePicker("跳转到", selection: $datePickerDay,
+                                       in: (entryDays.first ?? .now)...(entryDays.last ?? .now),
+                                       displayedComponents: .date)
+                                .datePickerStyle(.graphical)
+                                .environment(\.locale, Locale(identifier: "zh_CN"))
+                                .padding()
+                                .onChange(of: datePickerDay) { _, d in   // 选中即跳到最近的有记录日期
+                                    showDatePicker = false
+                                    if let day = nearestEntryDay(to: d) { goTo(day, proxy) }
+                                }
+                            Spacer()
+                        }
+                        .navigationTitle("跳转到有记录的日期")
+                        .navigationBarTitleDisplayMode(.inline)
+                    }
+                    .presentationDetents([.medium, .large])
+                }
+                .onAppear { if let newest = entryDays.last { focusedDay = newest } }
             }
             .sheet(isPresented: $showNew) { DiaryEditorView() }
             .sheet(item: $editing) { DiaryEditorView(entry: $0) }
         }
+    }
+
+    // 顶部日期导航：‹ 焦点天 ›，中间点击选有记录的日期（同时间轴）
+    private func dayNav(_ proxy: ScrollViewProxy) -> some View {
+        HStack(spacing: 12) {
+            Button { if let p = prevEntryDay { goTo(p, proxy) } } label: { Image(systemName: "chevron.left") }
+                .disabled(prevEntryDay == nil)
+            Button { datePickerDay = focusedDay; showDatePicker = true } label: {
+                Text(focusedDay.isSameDay(as: .now) ? "今天" : focusedDay.monthDay)
+                    .font(.subheadline).bold().lineLimit(1).fixedSize()
+            }
+            .buttonStyle(.plain)
+            Button { if let n = nextEntryDay { goTo(n, proxy) } } label: { Image(systemName: "chevron.right") }
+                .disabled(nextEntryDay == nil)
+        }
+    }
+
+    private func goTo(_ day: Date, _ proxy: ScrollViewProxy) {
+        focusedDay = day
+        withAnimation { proxy.scrollTo(day, anchor: .top) }
+    }
+    // 离目标最近的有记录日期
+    private func nearestEntryDay(to d: Date) -> Date? {
+        let t = d.startOfDay
+        return entryDays.min { abs($0.timeIntervalSince(t)) < abs($1.timeIntervalSince(t)) }
     }
 
     private func row(_ e: DiaryEntry) -> some View {
