@@ -8,7 +8,7 @@ import SwiftData
 
 struct MainTabView: View {
     @State private var selection = 0
-    @State private var todayTrigger = 0   // 点「时间轴」Tab → 跳到当前第一个空闲
+    @State private var todayTrigger = 0   // 点「时间轴」Tab → 重建今天打头窗口并回到今天 0 点
 
     var body: some View {
         TabView(selection: Binding(
