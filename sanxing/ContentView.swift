@@ -65,8 +65,8 @@ struct MainTabView: View {
     }
 
     private func tap(_ id: Int) {
-        selection = id
-        if id == 0 { todayTrigger += 1 }   // 点「时间轴」（切到或重点）都回今天
+        if id == 0 && selection == 0 { todayTrigger += 1 }   // 已在时间轴再点 → 当前时间居中
+        selection = id                                       // 仅切换到时间轴：不滚动（保留原位置，无动画）
     }
 }
 
