@@ -8,6 +8,7 @@ struct StatsView: View {
     @Query private var customCats: [CustomCategory]
     @State private var rangeDays = 7   // 1=今天 / 3 / 7 / 30
     @State private var selectedKey: String?   // 趋势图选中的分类（nil → 用占比最高的）
+    @State private var selectedDay: Date?      // 趋势图悬停/点选的那天
 
     private let cal = Calendar.current
     // 含今天在内的最近 rangeDays 天
@@ -60,7 +61,6 @@ struct StatsView: View {
                     statRow("时间块", "\(rangeBlocks.count)")
                     if rangeDays > 1 {
                         statRow("活跃天数", "\(activeDays) / \(rangeDays)")
-                        statRow("平均每天", formatDuration(total / Double(rangeDays)))
                     }
                 }
 
@@ -103,14 +103,32 @@ struct StatsView: View {
     }
 
     private func dailyChart(for key: String, style: CatStyle) -> some View {
-        Chart(perDay(for: key), id: \.day) { item in
+        let data = perDay(for: key)
+        let sel = selectedDay.flatMap { s in data.first { cal.isDate($0.day, inSameDayAs: s) } }
+        return Chart(data, id: \.day) { item in
             BarMark(
                 x: .value("日期", item.day, unit: .day),
                 y: .value("时长", item.seconds / 3600)
             )
             .foregroundStyle(style.color.gradient)
             .cornerRadius(3)
+            .opacity(sel == nil || cal.isDate(sel!.day, inSameDayAs: item.day) ? 1 : 0.35)
+
+            if let sel, cal.isDate(sel.day, inSameDayAs: item.day) {
+                RuleMark(x: .value("日期", item.day, unit: .day))
+                    .foregroundStyle(.clear)
+                    .annotation(position: .top, spacing: 2, overflowResolution: .init(x: .fit, y: .disabled)) {
+                        VStack(spacing: 1) {
+                            Text(sel.day.monthDay).font(.caption2).foregroundStyle(.secondary)
+                            Text(sel.seconds > 0 ? formatDuration(sel.seconds) : "无记录")
+                                .font(.caption).bold().foregroundStyle(style.color)
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                    }
+            }
         }
+        .chartXSelection(value: $selectedDay)
         .chartYAxisLabel("小时")
         .frame(height: 170)
         .padding(.vertical, 4)
