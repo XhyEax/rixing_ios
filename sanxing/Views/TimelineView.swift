@@ -808,14 +808,14 @@ struct TimelineView: View {
         return cal.date(bySettingHour: cal.component(.hour, from: target), minute: 0, second: 0, of: t)
     }
 
-    // 点「时间轴」Tab：定位今天「当前第一个空闲」行。用 scrollPosition 直接落位，不经过窗口顶部。
+    // 点「时间轴」Tab：定位到今天 0 点（今天 section 顶部）。用 scrollPosition 直接落位，不经过窗口顶部。
     private func scrollToToday() {
         let t = Date.now.startOfDay
         if t < (days.first ?? t) || t > (days.last ?? t) {   // 目标在窗口外 → 以今天为中心重建
             days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
         }
         focusedDay = t
-        let target = firstFreeHourStart() ?? visibleHourStarts(of: t).first
+        let target = visibleHourStarts(of: t).first   // 今天首个可见整点（即 0 点）
         guard target != scrolledID else { return }   // 已在目标行：无需滚动（也避免重设触发跳动）
         DispatchQueue.main.async {
             var tx = Transaction(); tx.disablesAnimations = true   // 直接落位，无中间滑动
