@@ -816,7 +816,9 @@ struct TimelineView: View {
         }
         focusedDay = t
         let target = firstFreeHourStart() ?? visibleHourStarts(of: t).first
-        DispatchQueue.main.async { scrolledID = target }   // 让窗口/行先就绪再定位
+        // scrollPosition 设成与当前相同的值不会触发滚动 → 先清空再设，保证每次点击都重新定位
+        if scrolledID == target { scrolledID = nil }
+        DispatchQueue.main.async { scrolledID = target }
     }
 
     // 今天从当前钟点起、第一个含空闲（空整点或小空闲段）的行
