@@ -33,6 +33,7 @@ struct MainTabView: View {
     // 常驻所有页，仅切换可见性（保留各自状态）
     @ViewBuilder private func page<V: View>(_ i: Int, @ViewBuilder _ content: () -> V) -> some View {
         content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)   // 强制铺满，避免被挤窄/左移
             .opacity(selection == i ? 1 : 0)
             .allowsHitTesting(selection == i)
     }
