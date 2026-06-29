@@ -7,6 +7,7 @@ struct StatsView: View {
     @Query(sort: \TimeBlock.start) private var blocks: [TimeBlock]
     @Query private var customCats: [CustomCategory]
     @State private var rangeDays = 7   // 1=今天 / 3 / 7 / 30
+    @State private var selectedKey: String?   // 趋势图选中的分类（nil → 用占比最高的）
 
     private let cal = Calendar.current
     // 含今天在内的最近 rangeDays 天
@@ -23,10 +24,18 @@ struct StatsView: View {
             .sorted { $0.seconds > $1.seconds }
     }
 
-    // 每天时长（升序，含无记录的 0 天），供趋势图
-    private var perDay: [(day: Date, seconds: TimeInterval)] {
+    // 趋势图实际展示的分类：选中的；选中项不在当前范围则退回占比最高的
+    private var effectiveKey: String? {
+        if let k = selectedKey, byCategory.contains(where: { $0.style.key == k }) { return k }
+        return byCategory.first?.style.key
+    }
+
+    // 某分类每天的时长（升序，含无记录的 0 天），供趋势图
+    private func perDay(for key: String) -> [(day: Date, seconds: TimeInterval)] {
         var dict: [Date: TimeInterval] = [:]
-        for b in rangeBlocks { dict[cal.startOfDay(for: b.start), default: 0] += b.duration }
+        for b in rangeBlocks where b.category == key {
+            dict[cal.startOfDay(for: b.start), default: 0] += b.duration
+        }
         return (0..<rangeDays).reversed().map { i in
             let d = Date.now.startOfDay.addingDays(-i)
             return (day: d, seconds: dict[d] ?? 0)
@@ -55,15 +64,23 @@ struct StatsView: View {
                     }
                 }
 
-                if rangeDays > 1 && !rangeBlocks.isEmpty {
-                    Section("每日时长") { dailyChart }
+                if rangeDays > 1, let key = effectiveKey {
+                    let style = catStyle(for: key, custom: customCats)
+                    Section("每日趋势 · \(style.name)") { dailyChart(for: key, style: style) }
                 }
 
                 if !byCategory.isEmpty {
-                    Section("分类占比") {
+                    Section {
                         ForEach(byCategory, id: \.style.key) { item in
-                            categoryBar(item.style, item.seconds)
+                            Button { selectedKey = item.style.key } label: {
+                                categoryBar(item.style, item.seconds, selected: item.style.key == effectiveKey)
+                            }
+                            .buttonStyle(.plain)
                         }
+                    } header: {
+                        Text("分类占比")
+                    } footer: {
+                        if rangeDays > 1 { Text("点击分类查看每日趋势") }
                     }
                 }
             }
@@ -85,13 +102,13 @@ struct StatsView: View {
         }
     }
 
-    private var dailyChart: some View {
-        Chart(perDay, id: \.day) { item in
+    private func dailyChart(for key: String, style: CatStyle) -> some View {
+        Chart(perDay(for: key), id: \.day) { item in
             BarMark(
                 x: .value("日期", item.day, unit: .day),
                 y: .value("时长", item.seconds / 3600)
             )
-            .foregroundStyle(Color.accentColor.gradient)
+            .foregroundStyle(style.color.gradient)
             .cornerRadius(3)
         }
         .chartYAxisLabel("小时")
@@ -99,11 +116,14 @@ struct StatsView: View {
         .padding(.vertical, 4)
     }
 
-    private func categoryBar(_ style: CatStyle, _ seconds: TimeInterval) -> some View {
+    private func categoryBar(_ style: CatStyle, _ seconds: TimeInterval, selected: Bool) -> some View {
         let ratio = total > 0 ? seconds / total : 0
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label(style.name, systemImage: style.icon).font(.subheadline).foregroundStyle(style.color)
+                Label(style.name, systemImage: style.icon)
+                    .font(.subheadline).fontWeight(selected ? .bold : .regular)
+                    .foregroundStyle(style.color)
+                if selected { Image(systemName: "chart.bar.fill").font(.caption2).foregroundStyle(style.color) }
                 Spacer()
                 Text("\(formatDuration(seconds)) · \(Int(ratio * 100))%")
                     .font(.caption).foregroundStyle(.secondary)
