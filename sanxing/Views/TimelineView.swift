@@ -66,6 +66,7 @@ struct TimelineView: View {
     @State private var frameBox = FrameBox()             // 各天 header 在视口中的位置（不触发重渲染）
     @State private var dragAnchor: Date?
     @State private var scrolledID: Date?            // scrollPosition：当前顶部行/滚动目标（hour-start）
+    @State private var scrollAnchor: UnitPoint = .top   // scrollPosition 锚点（.top 定位 / .center 居中）
     @State private var overlap: OverlapPair?        // 编辑后检测到的重叠，弹窗让用户选择如何处理
     @State private var rowMenu: RowMenu?            // 左侧时间点出的菜单（块/空闲）
     @State private var dayCache = DayBlocksCache()
@@ -222,7 +223,6 @@ struct TimelineView: View {
     var body: some View {
         rebuildDayCache()   // 每次渲染重建：每个块落进它覆盖的每一天（跨天块多天）
         return NavigationStack {
-          ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(days, id: \.self) { day in
@@ -248,20 +248,18 @@ struct TimelineView: View {
                 .scrollTargetLayout()
                 .padding(.horizontal)
             }
-            // scrollPosition 直接把目标行定位到顶部（不经过窗口顶部 → 无「滑到7天前」）
-            .scrollPosition(id: $scrolledID, anchor: .top)
+            // scrollPosition 单一滚动控制器（不要再叠 ScrollViewReader，否则布局错乱/左移）。
+            // anchor 可切换：普通定位用 .top，点 Tab 居中当前用 .center
+            .scrollPosition(id: $scrolledID, anchor: scrollAnchor)
             .coordinateSpace(name: "timeline")
             .onPreferenceChange(RowFrameKey.self) { rowFrames = $0 }
             .onPreferenceChange(DayFrameKey.self) { frameBox.dayFrames = $0; updateFocusedDay($0) }
             .highPriorityGesture(selectDragGesture)
             .onAppear { setupIfNeeded() }
-            .onChange(of: goTodayTrigger) { _, _ in scrollToToday(proxy) }
+            .onChange(of: goTodayTrigger) { _, _ in scrollToToday() }
             .navigationTitle(selectionMode ? "已选 \(totalSelected)" : "今日")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if selectionMode { selectionBar }
-            }
             .sheet(isPresented: $showFillDialog) {
                 NavigationStack {
                     ScrollView {
@@ -340,7 +338,10 @@ struct TimelineView: View {
                 SharePreviewSheet(image: shareImage, title: shareTitle, items: shareRows,
                                   scheme: effectiveScheme)
             }
-          }
+        }
+        // 多选操作栏放在 NavigationStack 之外、用 safeAreaInset 叠在底部标签栏上方
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if selectionMode { selectionBar }
         }
     }
 
@@ -888,13 +889,14 @@ struct TimelineView: View {
     }
 
     // 点「时间轴」Tab：把「当前时间所在的块/整点」滚到视图中央
-    private func scrollToToday(_ proxy: ScrollViewProxy) {
+    private func scrollToToday() {
         let t = Date.now.startOfDay
         days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }   // 今天居中重建
         focusedDay = t
         let target = nowRowID()
         DispatchQueue.main.async {   // 等窗口/行就绪再居中定位（无动画）
-            proxy.scrollTo(target, anchor: .center)
+            var tx = Transaction(); tx.disablesAnimations = true
+            withTransaction(tx) { scrollAnchor = .center; scrolledID = target }
         }
     }
 
@@ -939,7 +941,7 @@ struct TimelineView: View {
         }
         focusedDay = d
         let target = (d.isSameDay(as: .now) ? firstFreeHourStart() : nil) ?? visibleHourStarts(of: d).first
-        DispatchQueue.main.async { scrolledID = target }
+        DispatchQueue.main.async { scrollAnchor = .top; scrolledID = target }   // 日期跳转用顶部锚
     }
 
     // MARK: - 长按拖拽多选
