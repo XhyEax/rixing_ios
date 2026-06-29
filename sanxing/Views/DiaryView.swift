@@ -3,6 +3,14 @@ import SwiftUI
 import SwiftData
 import UIKit
 
+// 各天 section header 在列表坐标系里的位置，用于跟踪顶部当前天
+private struct DiaryDayFrameKey: PreferenceKey {
+    static var defaultValue: [Date: CGRect] = [:]
+    static func reduce(value: inout [Date: CGRect], nextValue: () -> [Date: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 struct DiaryView: View {
     @Environment(\.modelContext) private var ctx
     @Query(sort: \DiaryEntry.createdAt, order: .reverse) private var entries: [DiaryEntry]
@@ -34,7 +42,7 @@ struct DiaryView: View {
                     } else {
                         List {
                             ForEach(groups, id: \.day) { group in
-                                Section(group.day.dayTitle) {
+                                Section {
                                     ForEach(group.items) { entry in
                                         Button { editing = entry } label: { row(entry) }
                                             .buttonStyle(.plain)
@@ -46,10 +54,18 @@ struct DiaryView: View {
                                             }
                                     }
                                     .onDelete { deleteIn(group.items, $0) }
+                                } header: {
+                                    Text(group.day.dayTitle)
+                                        .background(GeometryReader { geo in
+                                            Color.clear.preference(key: DiaryDayFrameKey.self,
+                                                value: [group.day: geo.frame(in: .named("diary"))])
+                                        })
                                 }
                                 .id(group.day)
                             }
                         }
+                        .coordinateSpace(name: "diary")
+                        .onPreferenceChange(DiaryDayFrameKey.self) { updateFocusedDay($0) }
                     }
                 }
                 .navigationBarTitleDisplayMode(.inline)
@@ -106,6 +122,14 @@ struct DiaryView: View {
     private func goTo(_ day: Date, _ proxy: ScrollViewProxy) {
         focusedDay = day
         withAnimation { proxy.scrollTo(day, anchor: .top) }
+    }
+
+    // 顶部当前天：贴近列表顶部的那天 header（同时间轴），随手滑动实时更新
+    private func updateFocusedDay(_ frames: [Date: CGRect]) {
+        let above = frames.filter { $0.value.minY <= 44 }
+        let pick = above.max { $0.value.minY < $1.value.minY }?.key
+            ?? frames.min { $0.value.minY < $1.value.minY }?.key
+        if let d = pick, d != focusedDay { focusedDay = d }
     }
     // 离目标最近的有记录日期
     private func nearestEntryDay(to d: Date) -> Date? {
