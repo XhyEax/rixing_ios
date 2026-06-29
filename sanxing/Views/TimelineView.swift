@@ -793,7 +793,19 @@ struct TimelineView: View {
         let t = Date.now.startOfDay
         days = (-Self.windowRadius...Self.windowRadius).map { t.addingDays($0) }
         focusedDay = t
-        scrolledID = firstFreeHourStart() ?? visibleHourStarts(of: t).first   // 首屏直接定位（scrollPosition）
+        // 首屏定位：当前时间往前数 2 个块的那一行置顶（让最近 2 个块显示在当前时刻上方）
+        scrolledID = initialScrollTarget() ?? visibleHourStarts(of: t).first
+    }
+
+    // 当前时刻之前的第 2 个块所在的整点行（不足 2 个则取最早的；今天无既往块则退回首个空闲）
+    private func initialScrollTarget() -> Date? {
+        let t = Date.now.startOfDay
+        guard t.isSameDay(as: .now) else { return visibleHourStarts(of: t).first }
+        let now = Date.now
+        let preceding = segs(of: t).filter { $0.start < now }.sorted { $0.start < $1.start }
+        guard !preceding.isEmpty else { return firstFreeHourStart() }
+        let target = preceding[max(0, preceding.count - 2)].start
+        return cal.date(bySettingHour: cal.component(.hour, from: target), minute: 0, second: 0, of: t)
     }
 
     // 点「时间轴」Tab：定位今天「当前第一个空闲」行。用 scrollPosition 直接落位，不经过窗口顶部。
