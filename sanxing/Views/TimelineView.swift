@@ -67,6 +67,7 @@ struct TimelineView: View {
     @State private var dragAnchor: Date?
     @State private var scrolledID: Date?            // scrollPosition：当前顶部行/滚动目标（hour-start）
     @State private var overlap: OverlapPair?        // 编辑后检测到的重叠，弹窗让用户选择如何处理
+    @State private var rowMenu: RowMenu?            // 左侧时间点出的菜单（块/空闲）
     @State private var dayCache = DayBlocksCache()
     @State private var shareTitle = ""
     @State private var shareRows: [ShareItem] = []
@@ -84,6 +85,17 @@ struct TimelineView: View {
     private struct NewBlock: Identifiable { let start: Date; let end: Date; var id: Date { start } }
     private struct OverlapPair: Identifiable { let id = UUID(); let earlier: TimeBlock; let later: TimeBlock }
     private struct IdleRange: Hashable { let start: Date; let end: Date }
+    // 左侧时间点出的菜单目标（块 / 空闲段），驱动共享 confirmationDialog
+    private enum RowMenu: Identifiable {
+        case block(TimeBlock)
+        case idle(Date, Date)
+        var id: String {
+            switch self {
+            case .block(let b): return "b\(ObjectIdentifier(b).hashValue)"
+            case .idle(let s, let e): return "i\(s.timeIntervalSinceReferenceDate)-\(e.timeIntervalSinceReferenceDate)"
+            }
+        }
+    }
 
     // MARK: - 取数（按天 / 按 hour-start）
 
@@ -272,6 +284,14 @@ struct TimelineView: View {
                 Button("不合并", role: .cancel) {}
             } message: {
                 Text("将选中的块合并成一个，保留所选块的标题/分类/备注，范围覆盖全部。")
+            }
+            .confirmationDialog("", isPresented: Binding(
+                get: { rowMenu != nil }, set: { if !$0 { rowMenu = nil } }
+            ), titleVisibility: .hidden, presenting: rowMenu) { target in
+                switch target {
+                case .block(let b): blockTimeMenu(b)
+                case .idle(let s, let e): idleTimeMenu(s, e)
+                }
             }
             .sheet(item: $newBlock, onDismiss: afterEdit) {
                 TimeBlockEditorView(start: $0.start, end: $0.end)
@@ -603,21 +623,20 @@ struct TimelineView: View {
         case .empty(let hs):
             // 空整点也是空闲：左侧时间同样给「合并到上/下方」菜单
             timeLabeledRow(leading: {
-                leadingTimeMenu(hs, isNow: isNowIn(hs, hs.addingTimeInterval(3600))) {
-                    idleTimeMenu(hs, hs.addingTimeInterval(3600))
-                }
+                leadingTimeMenu(hs, isNow: isNowIn(hs, hs.addingTimeInterval(3600)),
+                                target: .idle(hs, hs.addingTimeInterval(3600)))
             }) {
                 emptySlot(hs)
             }
         case .block(let seg):
             timeLabeledRow(leading: {
-                leadingTimeMenu(seg.start, isNow: isNowIn(seg.start, seg.end)) { blockTimeMenu(seg.block) }
+                leadingTimeMenu(seg.start, isNow: isNowIn(seg.start, seg.end), target: .block(seg.block))
             }) {
                 Button { tapBlock(seg.block) } label: { blockCard(seg) }.buttonStyle(.plain)
             }
         case .idle(let s, let e):
             timeLabeledRow(leading: {
-                leadingTimeMenu(s, isNow: isNowIn(s, e)) { idleTimeMenu(s, e) }
+                leadingTimeMenu(s, isNow: isNowIn(s, e), target: .idle(s, e))
             }) {
                 idleGap(s, e)
             }
@@ -642,17 +661,20 @@ struct TimelineView: View {
     }
 
     // 左侧时间列做菜单触发：触发区 = 时间 + 下方空白（整个 block 左侧）。多选态退回纯文字。
+    // 性能：不再每行包一个 Menu（LazyVStack 里 Menu 很重、滚动卡顿），改为轻量 Button +
+    // 单个共享 confirmationDialog（rowMenu 记录点的是哪一行）。
     @ViewBuilder
-    private func leadingTimeMenu<M: View>(_ time: Date, isNow: Bool, @ViewBuilder menu: () -> M) -> some View {
+    private func leadingTimeMenu(_ time: Date, isNow: Bool, target: RowMenu) -> some View {
         if selectionMode {
             plainLeading(time, isNow: isNow)
         } else {
-            Menu { menu() } label: {
+            Button { rowMenu = target } label: {
                 timeText(time, isNow: isNow)
                     .frame(minWidth: 44, maxHeight: .infinity, alignment: .topLeading)
                     .padding(.top, 8)
                     .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
     }
 
