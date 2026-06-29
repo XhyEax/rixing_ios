@@ -128,6 +128,7 @@ struct TimeBlockEditorView: View {
                         Button("删除", role: .destructive) { delete() }
                             .tint(.red)
                     }
+                    Button("保存") { save() }.fontWeight(.semibold).disabled(end <= start)
                 }
             }
             .overlay(alignment: .bottom) {
