@@ -69,16 +69,13 @@ struct TimeBlockEditorView: View {
             Form {
                 Section {
                     TextField("做什么（可留空）", text: $title)
-                }
-                Section("备注") {
                     TextField("备注", text: $note, axis: .vertical).lineLimit(2...6)
-                }
-                Section {
                     Button { save() } label: {
                         Text("保存").frame(maxWidth: .infinity).fontWeight(.semibold)
                     }
-                    .disabled(end <= start)
+                    .disabled(end <= start || categoryKey.isEmpty)
                 }
+                   
                 Section("分类") {
                     CategoryGrid(selectedKey: categoryKey) { categoryKey = $0 }
                 }
@@ -128,7 +125,7 @@ struct TimeBlockEditorView: View {
                         Button("删除", role: .destructive) { delete() }
                             .tint(.red)
                     }
-                    Button("保存") { save() }.fontWeight(.semibold).disabled(end <= start)
+                    Button("保存") { save() }.fontWeight(.semibold).disabled(end <= start || categoryKey.isEmpty)
                 }
             }
             .overlay(alignment: .bottom) {
