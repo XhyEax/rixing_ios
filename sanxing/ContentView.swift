@@ -1,6 +1,8 @@
 //
-//  ContentView.swift — 底部 TabView：今日 / 日记 / 统计 / 设置
-//  sanxing
+//  ContentView.swift — 自定义底部栏：时间轴 / 随手记 / 统计 / 设置
+//  不用 TabView 的 tabItem 选中机制 → 没有「重复点 Tab 回顶/弹根」的系统行为，
+//  点「时间轴」回今天完全由本文件控制（todayTrigger）。
+//  各页用 ZStack + opacity 常驻，切换不丢滚动/状态（与 TabView 一致）。
 //
 
 import SwiftUI
@@ -8,32 +10,58 @@ import SwiftData
 
 struct MainTabView: View {
     @State private var selection = 0
-    @State private var todayTrigger = 0   // 点「时间轴」Tab → 重建今天打头窗口并回到今天 0 点
+    @State private var todayTrigger = 0   // 点「时间轴」→ 回今天
+
+    private struct TabDef { let id: Int; let name: String; let icon: String }
+    private let tabs = [
+        TabDef(id: 0, name: "时间轴", icon: "calendar.day.timeline.left"),
+        TabDef(id: 1, name: "随手记", icon: "book.closed"),
+        TabDef(id: 2, name: "统计", icon: "chart.bar.xaxis"),
+        TabDef(id: 3, name: "设置", icon: "gearshape"),
+    ]
 
     var body: some View {
-        TabView(selection: Binding(
-            get: { selection },
-            set: { newValue in
-                if newValue == 0 { todayTrigger += 1 }
-                selection = newValue
-            }
-        )) {
-            TimelineView(goTodayTrigger: todayTrigger)
-                .tag(0)
-                .tabItem { Label("时间轴", systemImage: "calendar.day.timeline.left") }
-
-            DiaryView()
-                .tag(1)
-                .tabItem { Label("随手记", systemImage: "book.closed") }
-
-            StatsView()
-                .tag(2)
-                .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }
-
-            SettingsView()
-                .tag(3)
-                .tabItem { Label("设置", systemImage: "gearshape") }
+        ZStack {
+            page(0) { TimelineView(goTodayTrigger: todayTrigger) }
+            page(1) { DiaryView() }
+            page(2) { StatsView() }
+            page(3) { SettingsView() }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+    }
+
+    // 常驻所有页，仅切换可见性（保留各自状态）
+    @ViewBuilder private func page<V: View>(_ i: Int, @ViewBuilder _ content: () -> V) -> some View {
+        content()
+            .opacity(selection == i ? 1 : 0)
+            .allowsHitTesting(selection == i)
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(alignment: .center) {
+                ForEach(tabs, id: \.id) { tab in
+                    Button { tap(tab.id) } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: tab.icon).font(.system(size: 20))
+                            Text(tab.name).font(.caption2)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(selection == tab.id ? Color.accentColor : .secondary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 8)
+        }
+        .background(.bar)
+    }
+
+    private func tap(_ id: Int) {
+        selection = id
+        if id == 0 { todayTrigger += 1 }   // 点「时间轴」（切到或重点）都回今天
     }
 }
 
