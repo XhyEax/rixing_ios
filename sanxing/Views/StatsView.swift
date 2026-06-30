@@ -122,10 +122,14 @@ struct StatsView: View {
             .cornerRadius(3)
             .opacity(sel == nil || cal.isDate(sel!.day, inSameDayAs: item.day) ? 1 : 0.35)
 
-            // 平均时长：绿色虚线（标注移到 section 标题）
+            // 平均时长：绿色虚线 + 右上方绿色文字标注
             RuleMark(y: .value("平均", avgSeconds(for: key) / 3600))
                 .foregroundStyle(.green)
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                    Text(formatDuration(avgSeconds(for: key)))
+                        .font(.caption2).foregroundStyle(.green)
+                }
 
             if let sel, cal.isDate(sel.day, inSameDayAs: item.day) {
                 RuleMark(x: .value("日期", item.day, unit: .day))

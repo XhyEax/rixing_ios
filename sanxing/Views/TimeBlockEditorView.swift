@@ -80,7 +80,6 @@ struct TimeBlockEditorView: View {
                 }
                 Section("时间") {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("时长").font(.subheadline).foregroundStyle(.secondary)
                         Picker("时长", selection: $durationMinutes) {
                             ForEach(Self.presetMinutes, id: \.self) { m in
                                 Text(m == 60 ? "1小时" : "\(m)分钟").tag(m)

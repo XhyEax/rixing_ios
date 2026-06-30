@@ -132,7 +132,7 @@ struct DiaryView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(e.createdAt.dayTitle + " " + e.createdAt.hm)
                                     .font(.caption).foregroundStyle(.secondary)
-                                Text(e.text).font(.body).lineLimit(3)
+                                Text(e.text).font(.body).lineLimit(30)
                             }
                         }
                         .buttonStyle(.plain)
@@ -196,7 +196,7 @@ struct DiaryView: View {
             Text(e.text.isEmpty ? "（空）" : e.text)
                 .font(.body)
                 .foregroundStyle(e.text.isEmpty ? .secondary : .primary)
-                .lineLimit(3)
+                .lineLimit(15)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
